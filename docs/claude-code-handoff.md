@@ -1,6 +1,6 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
-Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). This documentation update itself is not yet committed.
+Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). This documentation update itself is not yet committed. Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"), pending Codex review and owner-run Git checks/commit.
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
 ## 1. Responsibilities, Authorization, and Current Objective
@@ -219,7 +219,21 @@ Migration versions use the complete original filename BaseName:
 - After the commit, no outstanding changes to tracked files were shown.
 - `.workbuddy/` and the original V1 design document remain untracked. They were intentionally excluded from the initial commit; do not add them without an explicit owner instruction.
 - No remote publication was reported. Do not assume a remote, a push, or tags exist.
-- Limits: Claude Code and Codex did not run Git commands; these results are owner-reported. The commit records the working tree at that point; it does not add runtime verification beyond what Sections 2, 6, and 7 record. Changes made after `b9cd0ea`, including this documentation update, are not committed.
+- Limits: Claude Code and Codex did not run Git commands; these results are owner-reported. The commit records the tracked files at that point; it does not add runtime verification beyond what Sections 2, 6, and 7 record. Changes made after `b9cd0ea`, including this documentation update, are not committed.
+
+### Pre-Push Documentation Corrections (Documentation Only)
+
+Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push. No code, configuration, contract, test, or migration file changed. No build, test, database, container, or Git command was run by Claude Code. These corrections are pending Codex review and owner-run Git checks and commit. They add no runtime verification and do not constitute Phase 0 acceptance.
+
+- `README.md` (kept in Chinese, same structure):
+  - The broken link to the nonexistent `docs/phase0-delivery.md` was replaced with `docs/claude-code-handoff.md`, identified as the current handoff and acceptance-status record. `docs/phase0-handoff.md` remains linked as the older step-by-step checklist with partly outdated "not run" notes and test counts.
+  - Origin statement: exact Origin validation applies to state-changing requests only; user-side state-changing requests use `PUBLIC_ORIGIN`, and administrator state-changing requests use `ADMIN_ORIGIN`. This matches `AuthFilter` and `AdminFilter`, which check Origin only for state-changing methods.
+  - `docs/architecture.md` is labeled a historical snapshot with outdated deployment descriptions.
+  - A status note says Phase 0 has not passed final acceptance, the executed checks were targeted, and not every contract or end-to-end check has been executed.
+  - Security baseline item 2 now describes the administrator login exception: exact `POST /api/admin/v1/sessions` requires exact `ADMIN_ORIGIN` and `X-Requested-By` but no session-bound CSRF token before login; other protected administrator writes, including logout, still require that token. Ordinary-user pre-authentication protection (CSRF + Origin for sending codes and login) is preserved.
+  - The `tests/` row now describes cross-layer acceptance checklists and test documentation executed selectively by the owner; it no longer says the checks are never executed, and it does not claim all checks have run.
+- This file: the "Git Baseline" limits wording now says the commit records the tracked files (not the whole working tree). A previous delivery of that wording did not reach the file on disk; it is applied here.
+- Known residual: the root `tests/` documents themselves were not re-reviewed for outdated "not executed" statements.
 
 ## 7. Known Issues and Outstanding Acceptance Work
 
@@ -230,7 +244,7 @@ Migration versions use the complete original filename BaseName:
 5. Line buffering was built and deployed. The owner later obtained codes and logged in successfully but did not separately confirm that every log appeared immediately. Do not report complete log-timing verification.
 6. The installed application's initial blank screen has no confirmed cause. Reopening currently works. If it recurs, collect console/request evidence before clearing caches.
 7. Real email delivery, real push delivery, and later task/reward/asset/media features remain unverified or outside Phase 0.
-8. **Resolved: initial Git baseline.** Repository initialization, staged-scope review, and the initial commit `b9cd0ea` were completed by the owner (Section 6, "Git Baseline"). This later documentation update is not yet committed; any further commit or remote publication is the owner's decision. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
+8. **Resolved: initial Git baseline.** Repository initialization, staged-scope review, and the initial commit `b9cd0ea` were completed by the owner (Section 6, "Git Baseline"). Later documentation updates, including the pre-push corrections in Section 6, are not yet committed and are pending Codex review and owner-run Git checks; any further commit or remote publication is the owner's decision. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
 
 ## 8. Document Reliability and Reading Order
 
