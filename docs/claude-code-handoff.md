@@ -1,6 +1,6 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
-Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3).
+Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). This documentation update itself is not yet committed.
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
 ## 1. Responsibilities, Authorization, and Current Objective
@@ -10,13 +10,13 @@ Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 - **The owner manually runs builds, tests, database operations, container operations, installations, browser checks, and Git operations.** Neither Claude Code nor Codex should execute these actions unless the owner explicitly grants additional authorization.
 - Commands in this document are references for the owner. Their presence does not authorize Claude Code to execute them.
 - The owner has delegated subsequent implementation to Claude Code. Do not ask again for permission to implement an explicitly assigned fix. Explain and obtain authorization before making out-of-scope architectural changes, database changes, dependency upgrades, or feature additions.
-- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. The current branch, commits, and overall working-tree changes have not completed Git acceptance review; do not claim that the work has been committed.
+- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. The owner initialized a local repository on `main` and made the initial baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Changes made after that commit, including later updates to this document, are uncommitted unless the owner reports a new commit; do not claim otherwise.
 - Do not read the real `.env`. Do not disclose secrets, passwords, session cookies, plaintext verification codes, or invitation codes. Do not inspect database backups to obtain secrets.
 - Deliver actual file differences, the reasoning behind the fix, and its verification status. Distinguish "files modified," "statically reviewed," "build passed," "tests passed," and "real workflow verified." Another tool's completion report is not test evidence.
 - Give the owner one acceptance step at a time and wait for its result before proceeding. Retain essential errors rather than pasting lengthy logs.
 - All content handed to Claude Code must be written in English. Codex continues to communicate with the owner in Chinese.
 
-**Current objective: complete Phase 0 acceptance. The reproduced administrator-list authentication defect has been fixed and passed the owner-run checks recorded in Section 2, but Phase 0 is still not accepted: Git review/commit and the open items in Section 7 remain. Do not proceed to Phase 1 until the owner explicitly accepts Phase 0.**
+**Current objective: complete Phase 0 acceptance. The reproduced administrator-list authentication defect has been fixed and passed the owner-run checks recorded in Section 2, and the Phase 0 baseline is committed locally as `b9cd0ea`, but Phase 0 is still not accepted: the open items and verification limits in Section 7 remain, and the owner has not explicitly accepted Phase 0. A baseline commit is not Phase 0 acceptance. Do not proceed to Phase 1 until the owner explicitly accepts Phase 0.**
 
 ## 2. Resolved: Unauthenticated Access to Administrator Lists
 
@@ -145,7 +145,7 @@ Creating global pnpm shims through Corepack failed because of directory permissi
 
 ## 5. Implemented Fixes and Relevant Files
 
-The following fixes are already present in the working directory. Do not reintroduce the previous errors. Overall Git diff review and commit verification remain pending.
+The following fixes are already present in the working directory. Do not reintroduce the previous errors. They are part of the initial local baseline commit `b9cd0ea` (Section 6, "Git Baseline"); a commit records the files but is not additional runtime verification.
 
 | File / Module | Key Change and Boundary |
 | --- | --- |
@@ -212,6 +212,15 @@ Migration versions use the complete original filename BaseName:
 0005_admin_audit
 ```
 
+### Git Baseline (Owner-Run)
+
+- The owner initialized a new local Git repository on branch `main`.
+- The owner reviewed the staged scope and made the initial baseline commit `b9cd0ea` with the message `chore: establish phase 0 baseline`.
+- After the commit, no outstanding changes to tracked files were shown.
+- `.workbuddy/` and the original V1 design document remain untracked. They were intentionally excluded from the initial commit; do not add them without an explicit owner instruction.
+- No remote publication was reported. Do not assume a remote, a push, or tags exist.
+- Limits: Claude Code and Codex did not run Git commands; these results are owner-reported. The commit records the working tree at that point; it does not add runtime verification beyond what Sections 2, 6, and 7 record. Changes made after `b9cd0ea`, including this documentation update, are not committed.
+
 ## 7. Known Issues and Outstanding Acceptance Work
 
 1. **Resolved: unauthenticated administrator reads.** Fixed, rebuilt, tested, and checked at runtime; see Section 2 for results and the limits of that evidence.
@@ -221,7 +230,7 @@ Migration versions use the complete original filename BaseName:
 5. Line buffering was built and deployed. The owner later obtained codes and logged in successfully but did not separately confirm that every log appeared immediately. Do not report complete log-timing verification.
 6. The installed application's initial blank screen has no confirmed cause. Reopening currently works. If it recurs, collect console/request evidence before clearing caches.
 7. Real email delivery, real push delivery, and later task/reward/asset/media features remain unverified or outside Phase 0.
-8. Git working-tree inspection, overall diff review, and committing remain pending; nothing in this document has been committed. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
+8. **Resolved: initial Git baseline.** Repository initialization, staged-scope review, and the initial commit `b9cd0ea` were completed by the owner (Section 6, "Git Baseline"). This later documentation update is not yet committed; any further commit or remote publication is the owner's decision. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
 
 ## 8. Document Reliability and Reading Order
 
@@ -282,8 +291,9 @@ container operations, installations, and Git operations. Do not execute
 those actions unless I explicitly authorize them separately.
 
 The Section 2 administrator authentication fix and the HomeView label fix
-have been implemented and checked; do not redo them. Phase 0 is still not
-accepted, and Git review/commit remains pending. Wait for my next assigned
+have been implemented and checked; do not redo them. The Phase 0 baseline
+is committed locally as b9cd0ea; later changes stay uncommitted until I
+report a new commit. Phase 0 is still not accepted. Wait for my next assigned
 task, then use the existing implementation authorization for that task
 only. Do not read the real .env, and preserve unrelated changes.
 
