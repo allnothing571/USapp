@@ -1,6 +1,6 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
-Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). This documentation update itself is not yet committed. Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"), pending Codex review and owner-run Git checks/commit.
+Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6).
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
 ## 1. Responsibilities, Authorization, and Current Objective
@@ -10,13 +10,13 @@ Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 - **The owner manually runs builds, tests, database operations, container operations, installations, browser checks, and Git operations.** Neither Claude Code nor Codex should execute these actions unless the owner explicitly grants additional authorization.
 - Commands in this document are references for the owner. Their presence does not authorize Claude Code to execute them.
 - The owner has delegated subsequent implementation to Claude Code. Do not ask again for permission to implement an explicitly assigned fix. Explain and obtain authorization before making out-of-scope architectural changes, database changes, dependency upgrades, or feature additions.
-- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. The owner initialized a local repository on `main` and made the initial baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Changes made after that commit, including later updates to this document, are uncommitted unless the owner reports a new commit; do not claim otherwise.
+- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. Git state is recorded as dated, owner-reported observations (Section 6): the initial baseline commit `b9cd0ea`, and later a push to a private GitHub repository at `9e00049a6f4b669897ef1172047c4eb8bbdd7a57`. Treat any hash as the state at the time it was reported. Changes made after the last owner-reported state are uncommitted unless the owner reports a new commit; do not claim otherwise.
 - Do not read the real `.env`. Do not disclose secrets, passwords, session cookies, plaintext verification codes, or invitation codes. Do not inspect database backups to obtain secrets.
 - Deliver actual file differences, the reasoning behind the fix, and its verification status. Distinguish "files modified," "statically reviewed," "build passed," "tests passed," and "real workflow verified." Another tool's completion report is not test evidence.
 - Give the owner one acceptance step at a time and wait for its result before proceeding. Retain essential errors rather than pasting lengthy logs.
 - All content handed to Claude Code must be written in English. Codex continues to communicate with the owner in Chinese.
 
-**Current objective: complete Phase 0 acceptance. The reproduced administrator-list authentication defect has been fixed and passed the owner-run checks recorded in Section 2, and the Phase 0 baseline is committed locally as `b9cd0ea`, but Phase 0 is still not accepted: the open items and verification limits in Section 7 remain, and the owner has not explicitly accepted Phase 0. A baseline commit is not Phase 0 acceptance. Do not proceed to Phase 1 until the owner explicitly accepts Phase 0.**
+**Current objective: complete Phase 0 acceptance. The reproduced administrator-list authentication defect has been fixed and passed the owner-run checks recorded in Section 2, and the repository has been pushed to a private GitHub repository (Section 6), but Phase 0 is still not accepted: the open items and verification limits in Section 7 and `docs/phase0-acceptance.md` remain, and the owner has not explicitly accepted Phase 0. Neither a commit nor a push is Phase 0 acceptance. Do not proceed to Phase 1 until the owner explicitly accepts Phase 0.**
 
 ## 2. Resolved: Unauthenticated Access to Administrator Lists
 
@@ -90,7 +90,7 @@ Implemented test files (all under `services/api/tests/`):
 The owner ran these checks under Codex's guidance after the fix:
 
 - Test image and runtime image builds succeeded.
-- All three CTest targets (`unit`, `db_gated`, `static_check`) passed; `db_gated` ran and was not skipped; exit code 0. Per-assertion counts and timings for this run were not recorded here; do not invent them.
+- All three CTest targets (`unit`, `db_gated`, `static_check`) passed; `db_gated` ran and was not skipped; exit code 0. Recorded timings: `unit` 0.01 s, `db_gated` 0.20 s, `static_check` 0.00 s, total 0.21 s. Per-assertion counts were not recorded; do not invent them.
 - Anonymous requests to `/api/admin/v1/users`, `/api/admin/v1/couples`, and `/api/admin/v1/audit-logs` returned `401 UNAUTHENTICATED` without list data.
 - Anonymous `GET /api/admin/v1/health` and `GET /api/admin/v1/session` returned 200; bootstrap returned `authenticated=false` and an empty `csrf_token`.
 - An authenticated administrator could load all three lists.
@@ -102,7 +102,7 @@ The owner ran these checks under Codex's guidance after the fix:
 ### Limits of This Evidence
 
 - Invalid, expired, and revoked sessions were exercised by the `db_gated` test against the test database, not by separate live requests against the running service.
-- A wrong or missing `X-CSRF-Token` on an authenticated administrator write was covered by tests only; no separate live check was recorded.
+- A wrong or missing `X-CSRF-Token` on an authenticated administrator write was covered by tests only at the time of these results. A later live check on logout returned `403 CSRF_TOKEN_INVALID` for both cases (Section 6, "Administrator CSRF Live Checks"); session persistence after those rejections was not confirmed.
 - HEAD and OPTIONS requests to administrator routes were checked only at filter level in unit tests. Whether Drogon rewrites HEAD to GET or answers OPTIONS before filters run has not been verified.
 - Local address isolation and these targeted checks are not proof of complete authentication enforcement. No exhaustive security review or penetration test has been performed.
 
@@ -181,7 +181,7 @@ Drogon binds numeric parameters in binary format. Without explicit parameter typ
 - Backend test and runtime images built successfully; updated backend containers passed health checks.
 - Earlier complete backend test result (before the AdminFilter fix): `unit` 0.01 seconds, `db_gated` 0.21 seconds, `static_check` 0.00 seconds, total 0.23 seconds, exit code 0. The database test ran and was not skipped.
 - These are **three CTest targets**, not only three internal test cases. Do not repeat the outdated fixed "12 cases" claim. DbGatedTest now has eight test blocks, including the administrator-filter regression; UnitTest also has AdminFilter cases.
-- After the AdminFilter fix: test and runtime images built successfully; all three CTest targets passed, `db_gated` ran and was not skipped, exit code 0. Timings and assertion counts for this run were not recorded. Runtime results are in Section 2.
+- After the AdminFilter fix: test and runtime images built successfully; all three CTest targets passed, `db_gated` ran and was not skipped, exit code 0. Timings: `unit` 0.01 s, `db_gated` 0.20 s, `static_check` 0.00 s, total 0.21 s. Per-assertion counts for this run were not recorded. Runtime results are in Section 2.
 - The user frontend and custom Service Worker built successfully; three test files with 24 unit tests passed.
 - The administrator frontend built successfully. An earlier run passed two files with 29 unit tests. Tests passed again with exit code 0 after the login-request fix, but that run's total count was not recorded; do not invent an updated count.
 - User health on 8443 returned 200, administrator health on 8444 returned 200, and administrator health through the user entry point returned 404.
@@ -218,12 +218,12 @@ Migration versions use the complete original filename BaseName:
 - The owner reviewed the staged scope and made the initial baseline commit `b9cd0ea` with the message `chore: establish phase 0 baseline`.
 - After the commit, no outstanding changes to tracked files were shown.
 - `.workbuddy/` and the original V1 design document remain untracked. They were intentionally excluded from the initial commit; do not add them without an explicit owner instruction.
-- No remote publication was reported. Do not assume a remote, a push, or tags exist.
-- Limits: Claude Code and Codex did not run Git commands; these results are owner-reported. The commit records the tracked files at that point; it does not add runtime verification beyond what Sections 2, 6, and 7 record. Changes made after `b9cd0ea`, including this documentation update, are not committed.
+- At the time of the baseline commit, no remote publication was reported. A later push is recorded under "Private GitHub Publication" below. Do not assume tags exist.
+- Limits: Claude Code and Codex did not run Git commands; these results are owner-reported. The commit records the tracked files at that point; it does not add runtime verification beyond what Sections 2, 6, and 7 record. At the time, changes made after `b9cd0ea` were not committed.
 
 ### Pre-Push Documentation Corrections (Documentation Only)
 
-Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push. No code, configuration, contract, test, or migration file changed. No build, test, database, container, or Git command was run by Claude Code. These corrections are pending Codex review and owner-run Git checks and commit. They add no runtime verification and do not constitute Phase 0 acceptance.
+Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push. No code, configuration, contract, test, or migration file changed. No build, test, database, container, or Git command was run by Claude Code. When written, these corrections were pending Codex review and owner-run Git checks and commit; the later push (below) was reported with no other changes outstanding besides the two intentionally untracked items. They add no runtime verification and do not constitute Phase 0 acceptance.
 
 - `README.md` (kept in Chinese, same structure):
   - The broken link to the nonexistent `docs/phase0-delivery.md` was replaced with `docs/claude-code-handoff.md`, identified as the current handoff and acceptance-status record. `docs/phase0-handoff.md` remains linked as the older step-by-step checklist with partly outdated "not run" notes and test counts.
@@ -235,19 +235,46 @@ Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push
 - This file: the "Git Baseline" limits wording now says the commit records the tracked files (not the whole working tree). A previous delivery of that wording did not reach the file on disk; it is applied here.
 - Known residual: the root `tests/` documents themselves were not re-reviewed for outdated "not executed" statements.
 
+### Pre-Commit Credential-Pattern Check (Owner-Run)
+
+- A basic credential-pattern check was run before committing: `git grep` over the staged files for private-key headers, AWS-style access-key identifiers, and selected GitHub token patterns produced no matches (exit code 1, meaning no match). The owner also verified that ignore rules cover `.env`, the backup archive, certificates, `node_modules`, and the frontend `dist` directories.
+- Limits: this was a limited pattern check of staged files only. It covered a small set of credential formats, not every possible secret, and it was not a scan of the full pushed history; no complete history scan was recorded. It does not prove that all secrets are excluded from the repository.
+
+### Private GitHub Publication (Owner-Run; Dated Observation, 2026-10-06)
+
+- The owner pushed the repository for the first time to the owner-confirmed private repository `https://github.com/allnothing571/USapp`.
+- Local `HEAD` and remote `main` both matched `9e00049a6f4b669897ef1172047c4eb8bbdd7a57`.
+- Local `main` tracks `origin/main`.
+- Only `.workbuddy/` and the original V1 design document remained untracked, intentionally.
+- Limits: owner-reported; Claude Code and Codex did not run Git commands. This is the state at the time of reporting, not a permanent current state. Repository visibility was confirmed by the owner, not independently checked. Before committing, the owner ran a limited staged-file credential-pattern check with no matches and verified key ignore rules (see "Pre-Commit Credential-Pattern Check" above); no complete scan of the pushed history was recorded, so this is not proof that history contains no secrets. A push is not Phase 0 acceptance.
+
+### Administrator CSRF Live Checks (Owner-Run)
+
+- An authenticated administrator `DELETE /api/admin/v1/sessions` (logout) with a missing `X-CSRF-Token` returned `403 CSRF_TOKEN_INVALID`.
+- The same request with an incorrect `X-CSRF-Token` also returned `403 CSRF_TOKEN_INVALID`.
+- Limits: whether the administrator session remained valid after those rejected requests was not separately confirmed by the owner; do not infer it. Invalid, expired, and revoked session cookies remain test-only (Section 2).
+
+### Scheduler Heartbeat (Owner-Run)
+
+- Runtime configuration: scheduler enabled (`enabled=true`), tick interval 15000 ms.
+- Main-database heartbeat query, excluding the migration placeholder: 1954 completed records; latest timestamp `2026-10-06 08:41:54.591309+00`; age 13.137962 seconds at query time.
+- This confirms that heartbeat jobs were executing and completing in the running service at that time.
+- Limits: a single point-in-time query. It is not live multi-instance concurrency verification; advisory-lock mutual exclusion and rollback release are covered by the `db_gated` test only.
+
 ## 7. Known Issues and Outstanding Acceptance Work
 
 1. **Resolved: unauthenticated administrator reads.** Fixed, rebuilt, tested, and checked at runtime; see Section 2 for results and the limits of that evidence.
-2. Administrator negative checks, partially done. Live results: wrong login Origin returned `403 ORIGIN_NOT_ALLOWED`; missing `X-Requested-By` returned `403 CSRF_TOKEN_INVALID`; anonymous lists returned 401; the list request after logout returned `UNAUTHENTICATED`. Still covered only by automated tests, with no separate live check: invalid, expired, and revoked session cookies, and a wrong or missing `X-CSRF-Token` on authenticated writes. Passing tests does not prove complete access-control correctness.
+2. Administrator negative checks, partially done. Live results: wrong login Origin returned `403 ORIGIN_NOT_ALLOWED`; missing `X-Requested-By` returned `403 CSRF_TOKEN_INVALID`; anonymous lists returned 401; the list request after logout returned `UNAUTHENTICATED`. An authenticated administrator logout with a missing or incorrect `X-CSRF-Token` also returned `403 CSRF_TOKEN_INVALID` live (Section 6, "Administrator CSRF Live Checks"); session persistence after those rejected requests was not confirmed. Still covered only by automated tests, with no separate live check: invalid, expired, and revoked session cookies. Passing tests does not prove complete access-control correctness.
 3. **Resolved: HomeView member label.** Previously, `apps/web/src/views/HomeView.vue` used `item.member?.display_name || ...`, so a member with an empty nickname was labeled "Vacant" while the badge said "Joined." The vacancy label now renders only when `item.member` is absent; an existing member shows their nickname or a Chinese fallback meaning "Nickname not set." Owner results: the user-frontend build passed; after the app's update prompt and a refresh, both members displayed the "Nickname not set" label with "Joined" badges, and membership remained 2/2. Limits: user-frontend unit tests were not reported as rerun after this change; a member with a non-empty nickname was not separately shown after the change; membership data was not modified.
 4. `Transaction roll back error` occurred alongside the invitation-acceptance parameter-binding error. After the type fix, the real invitation workflow and regression passed. The explanation that malformed binary binding necessarily prevents subsequent rollback is unverified. Do not refactor transactions on that assumption or claim all rollback failures have been excluded.
 5. Line buffering was built and deployed. The owner later obtained codes and logged in successfully but did not separately confirm that every log appeared immediately. Do not report complete log-timing verification.
 6. The installed application's initial blank screen has no confirmed cause. Reopening currently works. If it recurs, collect console/request evidence before clearing caches.
-7. Real email delivery, real push delivery, and later task/reward/asset/media features remain unverified or outside Phase 0.
-8. **Resolved: initial Git baseline.** Repository initialization, staged-scope review, and the initial commit `b9cd0ea` were completed by the owner (Section 6, "Git Baseline"). Later documentation updates, including the pre-push corrections in Section 6, are not yet committed and are pending Codex review and owner-run Git checks; any further commit or remote publication is the owner's decision. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
+7. Real email delivery, real push delivery, and later task/reward/asset/media features remain unverified or outside Phase 0. Scheduler heartbeat execution was observed (Section 6), but live multi-instance scheduler concurrency has not been verified.
+8. **Resolved: initial Git baseline.** Repository initialization, staged-scope review, and the initial commit `b9cd0ea` were completed by the owner (Section 6, "Git Baseline"). A later owner-reported push to a private GitHub repository is recorded in Section 6 as a dated observation. Documentation changes made after that push, including the update that records it and `docs/phase0-acceptance.md`, are uncommitted until the owner reports otherwise; any further commit or push is the owner's decision. Older handoff documents (including `services/api/tests/README.md` test counts) still need a final status update.
 
 ## 8. Document Reliability and Reading Order
 
+- `docs/phase0-acceptance.md`: concise Phase 0 acceptance matrix derived from the evidence in this document; final owner acceptance is pending.
 - `contracts/openapi.yaml`: interface contract. Do not change it to allow unauthenticated list access.
 - `services/api/src/http/AdminFilter.cc`, `AdminFilter.h`, `controllers/AdminController.cc`, and `services/AdminAuthService.cc`: direct entry points for the administrator authentication fix (resolved; see Section 2); controller/service paths are relative to `services/api/src/`.
 - `services/api/tests/UnitTest.cc`, `DbGatedTest.cc`, `TestSupport.h`, `AdminFilterProbe.h`, and `CMakeLists.txt`: active tests and supporting mechanisms, all under `services/api/tests/`.
@@ -305,9 +332,10 @@ container operations, installations, and Git operations. Do not execute
 those actions unless I explicitly authorize them separately.
 
 The Section 2 administrator authentication fix and the HomeView label fix
-have been implemented and checked; do not redo them. The Phase 0 baseline
-is committed locally as b9cd0ea; later changes stay uncommitted until I
-report a new commit. Phase 0 is still not accepted. Wait for my next assigned
+have been implemented and checked; do not redo them. Git state in the
+handoff is a dated observation (private GitHub push at 9e00049); later
+changes stay uncommitted until I report a new commit. Phase 0 is still not
+accepted; see docs/phase0-acceptance.md. Wait for my next assigned
 task, then use the existing implementation authorization for that task
 only. Do not read the real .env, and preserve unrelated changes.
 
