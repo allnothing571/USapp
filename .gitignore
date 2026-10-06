@@ -1,0 +1,52 @@
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+.vite/
+
+# 依赖锁文件由项目负责人手动生成，不提交生成过程产物说明
+# （pnpm-lock.yaml 会在负责人执行 pnpm install 后产生，届时可提交）
+
+# ---- C++ / CMake ----
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.a
+*.so
+*.dylib
+compile_commands.json
+
+# ---- 本地环境与密钥（真实密钥永不进仓库） ----
+.env
+.env.*
+!.env.example
+deploy/env/.env
+!deploy/env/.env.example
+deploy/caddy/certs/
+secrets/
+*.pem
+*.key
+*.crt
+*.pfx
+
+# ---- 运行期数据 ----
+data/
+pgdata/
+backups/
+*.dump
+*.sql.gz
+logs/
+*.log
+
+# ---- 编辑器 / 操作系统 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# ---- 阶段 0 临时提取物（不是交付物） ----
+_req_extract.txt

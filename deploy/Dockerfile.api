@@ -1,0 +1,204 @@
+# =====================================================================
+# USapp 阶段 0 —— api 服务镜像（C++17 / Drogon）
+#
+# 状态：本镜像从未被构建过（未执行 docker build / compose build）。
+#       尤其是下方"第三方依赖安装块"没有任何一次真实构建结果作为依据，
+#       极可能需要按实际的 Drogon 版本调整；请先单独构建本文件再启用编排。
+#
+# 构建上下文：仓库根目录（docker-compose.yml 中 context: ..）。
+#            因此所有 COPY 路径都从仓库根算起。
+#
+# 目标产物：CMake 目标 usapp_api（与 services/api/CMakeLists.txt 一致），
+#          可执行文件位于构建目录 build/usapp_api。
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# 阶段 1：构建
+# ---------------------------------------------------------------------
+# 选用 Debian bookworm-slim：与运行阶段的发行版代号保持一致，
+# 避免 libssl / libjsoncpp / libuuid 的 soname 在主次发布版之间变化。
+ARG DEBIAN_RELEASE=bookworm
+FROM debian:${DEBIAN_RELEASE}-slim AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# =====================================================================
+# 【第三方依赖安装块】——唯一需要人工确认的一块
+# ---------------------------------------------------------------------
+# services/api/CMakeLists.txt 里出现了三个 find_package：
+#     find_package(Drogon REQUIRED)
+#     find_package(OpenSSL REQUIRED)
+#     find_package(CURL REQUIRED)
+# 其中 OpenSSL / CURL 有稳定的发行版 -dev 包；Drogon 没有官方 Debian 包，
+# 因此下面选择"从源码按固定 tag 构建并安装到 /usr/local"。
+#
+# 备选方案（TODO(负责人)：按实际环境二选一，不要同时启用）：
+#   A. 发行版/第三方仓库直接安装 Drogon
+#      —— 目前 Debian bookworm 主仓库没有 libdrogon-dev；若负责人自建了
+#         apt 源或改用 trixie/testing，可删掉下面的 clone+build 段，改为
+#         apt-get install -y libdrogon-dev，并让 find_package 直接命中。
+#   B. 官方镜像 drogonframework/drogon 作为 builder 基镜像
+#      —— 依赖齐全、构建最快，但把信任面交给了第三方镜像的 tag；
+#         若采用，删除本段 apt 依赖中的 Drogon 部分，并保留其余工具链。
+#   C. CMake FetchContent / CPM 在配置阶段拉取
+#      —— 需要在 services/api/CMakeLists.txt 增加 FetchContent 声明，
+#         本次不允许改动 services/ 下的任何文件，故未采用。
+#   D. vcpkg / Conan 清单
+#      —— 与"依赖全部为只读引用、不做联网下载"的项目口径冲突，且需新增清单文件。
+#
+# Drogon 的编译期可选依赖（Brotli / c-ares / hiredis 等）本项目都不需要：
+# 无 Redis、只需 HTTP + 数据库客户端 + OpenSSL。若构建报缺库，
+# 先补对应的 -dev 包，而不是打开项目中用不到的功能开关。
+# =====================================================================
+# 包与用途对照（刻意不在 RUN 的续行里写注释，避免不同前端对续行内注释的处理差异）：
+#   build-essential / cmake / ninja-build / pkg-config / git / ca-certificates —— 工具链与 CMake 生态
+#   libssl-dev        —— OpenSSL（SHA-256 / CSPRNG / PBKDF2）
+#   libcurl4-openssl-dev —— libcurl（SMTP 发信；Drogon 本身也依赖）
+#   zlib1g-dev        —— zlib（Drogon 的 gzip 支持）
+#   libjsoncpp-dev / uuid-dev —— Drogon 的直接依赖：JSON 解析与 UUID
+#   libpq-dev         —— PostgreSQL 客户端开发库（Drogon ORM / DbClient 必需依赖）
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        pkg-config \
+        ninja-build \
+        git \
+        ca-certificates \
+        libssl-dev \
+        libcurl4-openssl-dev \
+        zlib1g-dev \
+        libjsoncpp-dev \
+        uuid-dev \
+        libpq-dev; \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------
+# Drogon 源码构建（见上方"第三方依赖安装块"的说明与备选方案）
+# 固定使用官方正式稳定发行版 tag v1.9.11（全面支持 C++17、PostgreSQL 驱动与路径参数解析）。
+#
+# --recurse-submodules 是必需项：Drogon 把 Trantor 作为 git 子模块记录在
+# 主仓库中（.gitmodules + 固定提交），只克隆主仓库会得到一个空的
+# trantor 目录，CMake 随即报
+#     /tmp/drogon/trantor does not contain a CMakeLists.txt file.
+# 该选项按 v1.9.11 这个 tag 记录的提交初始化子模块，即构建结果与官方
+# 发布版本一致；刻意不使用 submodule update --remote（那会把 Trantor
+# 拉到 master 最新提交，脱离该 tag 的可复现构建口径）。
+# ---------------------------------------------------------------------
+ARG DROGON_VERSION=v1.9.11
+RUN set -eux; \
+    git clone --depth 1 --recurse-submodules --branch "${DROGON_VERSION}" \
+        https://github.com/drogonframework/drogon.git /tmp/drogon; \
+    cmake -S /tmp/drogon -B /tmp/drogon/build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_CTL=OFF \
+        -DBUILD_TESTING=OFF \
+        -DBUILD_SHARED_LIBS=ON; \
+    cmake --build /tmp/drogon/build -j"$(nproc)"; \
+    cmake --install /tmp/drogon/build; \
+    ldconfig; \
+    rm -rf /tmp/drogon
+
+# ---------------------------------------------------------------------
+# 业务代码构建
+# ---------------------------------------------------------------------
+WORKDIR /src
+
+# 只复制 api 服务目录：上下文是仓库根，所以路径从仓库根算起。
+COPY services/api/ /src/
+
+# -DUSAPP_BUILD_TESTS=OFF：生产镜像无需打包测试二进制产物；测试套件由负责人在测试环境/宿主机独立构建。
+RUN set -eux; \
+    cmake -S /src -B /src/build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUSAPP_BUILD_TESTS=OFF; \
+    cmake --build /src/build -j"$(nproc)"
+
+# ---------------------------------------------------------------------
+# 阶段：测试套件构建与运行（复用 builder 工具链与 Drogon 编译产物，无需宿主 C++ 环境）
+# ---------------------------------------------------------------------
+FROM builder AS tester
+
+WORKDIR /workspace
+# 复制完整工作区以支持 StaticCheckTest 读取 contracts/ 与 database/
+COPY . /workspace/
+
+ENV USAPP_ROOT=/workspace
+
+RUN set -eux; \
+    cmake -S /workspace/services/api -B /workspace/services/api/build-test -G Ninja \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DUSAPP_BUILD_TESTS=ON; \
+    cmake --build /workspace/services/api/build-test -j"$(nproc)"
+
+CMD ["ctest", "--test-dir", "/workspace/services/api/build-test", "--output-on-failure"]
+
+# ---------------------------------------------------------------------
+# 阶段 2：运行
+# ---------------------------------------------------------------------
+FROM debian:${DEBIAN_RELEASE}-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# 运行期只需要动态库与 curl（curl 供 HEALTHCHECK 使用，非业务依赖）。
+# 包名与 bookworm 对应：libssl3 / libcurl4 / libjsoncpp25 / libuuid1 / libpq5。
+# TODO(负责人)：若把 DEBIAN_RELEASE 改成 trixie，这些包名会变化
+#               （例如 libssl3t64 / libjsoncpp26），必须同步调整。
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libssl3 \
+        libcurl4 \
+        zlib1g \
+        libjsoncpp25 \
+        libuuid1 \
+        libpq5 \
+        ca-certificates \
+        curl \
+        tzdata; \
+    rm -rf /var/lib/apt/lists/*
+
+# 复制 Drogon 及其依赖库（Trantor）。
+# 这一整目录复制是有意的保守做法：Drogon 以共享库方式构建时，
+# 单独列文件名很容易漏掉某个 so 的版本后缀。
+# TODO(负责人)：若改为静态链接 Drogon（BUILD_DROGON_SHARED=OFF），
+#               本行可以删除。
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /src/build/usapp_api /usr/local/bin/usapp_api
+RUN ldconfig
+
+# 非 root 运行。
+RUN set -eux; \
+    groupadd --system --gid 10001 usapp; \
+    useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin usapp; \
+    mkdir -p /app; \
+    chown -R 10001:10001 /app
+
+WORKDIR /app
+USER 10001:10001
+
+# 端口说明：
+#   8080 —— 公开监听器（.env.example 的 API_PUBLIC_PORT=8080，权威值；Caddy upstream 即此端口）
+#   8443 —— 仅作历史/直连说明保留：若负责人把它改回 8443，需同时改
+#           deploy/Caddyfile 的 reverse_proxy 目标与 docker-compose.yml 的覆盖值
+#   8081 —— 管理监听器（只被同网络的 caddy 访问；容器内绑定 0.0.0.0，理由见 compose 注释）
+EXPOSE 8080 8443 8081
+
+# 健康检查走公开监听器的 /api/v1/health：
+# 它不受 ADMIN_ALLOWED_CIDRS 影响，作为存活探针更稳。
+# 备选（同样可用，且能顺带验证管理监听器）：
+#   curl -fsS http://127.0.0.1:8081/api/admin/v1/health
+# 采用备选的前提是 ADMIN_ALLOWED_CIDRS 含 127.0.0.1/32（.env.example 默认值含它）。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/api/v1/health || exit 1
+
+# 应用完全由环境变量驱动（见 services/api/src/config/AppConfig.cc），不需要命令行参数。
+# TODO(负责人)：Drogon 框架本体在某些配置下要求一个 config.json；
+#               当前应用只读环境变量，若启动时报找不到配置文件，
+#               需要把该文件 COPY 进镜像或以只读方式挂载。
+ENTRYPOINT ["/usr/local/bin/usapp_api"]

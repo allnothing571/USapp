@@ -1,0 +1,22 @@
+{
+  "name": "@usapp/push-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "USapp 推送辅助进程（阶段 0 仅骨架：健康检查、责任边界、队列接口占位）",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsc --watch --preserveWatchOutput",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/tests/"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "~5.9.2"
+  }
+}

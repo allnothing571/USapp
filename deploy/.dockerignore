@@ -1,0 +1,66 @@
+# =====================================================================
+# 构建上下文排除清单
+#
+# 重要：Docker 只读取「构建上下文根目录」下的 .dockerignore。
+#   本项目的构建上下文是仓库根目录（见 deploy/docker-compose.yml 中 `context: ..`），
+#   因此真正生效的文件必须是仓库根目录下的 /.dockerignore。
+#   本次交付只能写入 deploy/，所以本文件是**权威内容副本**，
+#   需要由负责人把它复制为仓库根的 .dockerignore 才真正生效。
+#   TODO(负责人)：
+#     Copy-Item deploy\.dockerignore .dockerignore
+#   在此之前，构建上下文里的一切（含 node_modules 与 .env）都会被一并发送给 Docker。
+#
+# 注：以下模式均相对仓库根目录书写。
+#     被排除的目录只影响 docker build 的上下文，不影响 compose 的 bind mount ——
+#     例如 apps/web/dist、apps/admin/dist 仍可正常挂载进 caddy 容器。
+# =====================================================================
+
+# ---- 依赖与前端构建产物 ----
+**/node_modules
+**/dist
+**/.vite
+**/*.tsbuildinfo
+
+# ---- 后端构建目录与中间产物 ----
+**/build
+**/cmake-build-*
+**/CMakeFiles
+**/CMakeCache.txt
+**/compile_commands.json
+**/target
+**/*.o
+**/*.a
+**/*.so
+**/*.dylib
+
+# ---- 本地环境与密钥（真实密钥永不进入构建上下文）----
+**/.env
+**/.env.*
+!**/.env.example
+deploy/caddy/certs
+**/*.pem
+**/*.key
+**/*.crt
+**/*.pfx
+
+# ---- 版本控制与编辑器 ----
+**/.git
+**/.gitignore
+**/.svn
+**/.hg
+**/.idea
+**/.vscode
+
+# ---- 运行期数据与备份 ----
+**/backups
+**/pgdata
+**/data
+**/logs
+**/*.log
+**/*.dump
+**/*.sql.gz
+
+# ---- 需求文档与临时提取物（不属于任何镜像的构建输入）----
+app开发方案V1.docx
+*.docx
+_req_extract.txt

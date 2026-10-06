@@ -1,0 +1,519 @@
+/*
+ * USapp 管理后台样式。
+ *
+ * 设计约束：
+ * - 与 apps/web 共用同一套"暖色调"设计变量语义（底色偏暖纸、强调色为陶土橙），
+ *   但管理后台整体走"运维工具"风格：更紧凑的行距、更小的圆角、等宽数字、
+ *   表格优先。管理界面不需要打动用户，它需要在一屏里塞下更多事实。
+ * - 没有任何外部字体/图标网络请求：管理入口只绑定回环，必须能离线打开。
+ */
+
+:root {
+  /* —— 暖色底 —— */
+  --us-warm-bg: #f7f3ec;
+  --us-warm-surface: #fffdf9;
+  --us-warm-surface-alt: #f1ebe1;
+  --us-warm-border: #e0d5c4;
+  --us-warm-border-strong: #c9b9a1;
+
+  /* —— 文字 —— */
+  --us-warm-text: #2e2922;
+  --us-warm-text-muted: #7b7062;
+  --us-warm-text-faint: #a1968a;
+
+  /* —— 强调（陶土橙）—— */
+  --us-warm-accent: #c2703a;
+  --us-warm-accent-strong: #9d5628;
+  --us-warm-accent-soft: rgba(194, 112, 58, 0.12);
+
+  /* —— 语义色 —— */
+  --us-warm-ok: #4c7a45;
+  --us-warm-ok-soft: rgba(76, 122, 69, 0.14);
+  --us-warm-warn: #a8801d;
+  --us-warm-warn-soft: rgba(168, 128, 29, 0.14);
+  --us-warm-danger: #ac3a2c;
+  --us-warm-danger-soft: rgba(172, 58, 44, 0.12);
+
+  /* —— 排版 —— */
+  --us-font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Hiragino Sans GB', sans-serif;
+  --us-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+  --us-font-size-base: 13px;
+  --us-font-size-sm: 12px;
+  --us-font-size-xs: 11px;
+  --us-line-height: 1.5;
+
+  /* —— 运维工具：紧凑尺度 —— */
+  --us-space-1: 4px;
+  --us-space-2: 8px;
+  --us-space-3: 12px;
+  --us-space-4: 16px;
+  --us-space-5: 24px;
+  --us-space-6: 32px;
+  --us-radius: 4px;
+  --us-radius-sm: 3px;
+  --us-shadow: 0 1px 2px rgba(46, 41, 34, 0.08);
+  --us-shadow-overlay: 0 6px 20px rgba(46, 41, 34, 0.14);
+  --us-focus-ring: 0 0 0 2px var(--us-warm-bg), 0 0 0 4px var(--us-warm-accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --us-warm-bg: #211d18;
+    --us-warm-surface: #2a251f;
+    --us-warm-surface-alt: #332c25;
+    --us-warm-border: #443a30;
+    --us-warm-border-strong: #5b4c3d;
+
+    --us-warm-text: #efe7db;
+    --us-warm-text-muted: #b0a495;
+    --us-warm-text-faint: #8a7f70;
+
+    --us-warm-accent: #d98a56;
+    --us-warm-accent-strong: #e9a578;
+    --us-warm-accent-soft: rgba(217, 138, 86, 0.16);
+
+    --us-warm-ok: #7fae76;
+    --us-warm-warn: #d2ac55;
+    --us-warm-danger: #d9776a;
+    --us-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --us-shadow-overlay: 0 6px 20px rgba(0, 0, 0, 0.5);
+    --us-focus-ring: 0 0 0 2px var(--us-warm-bg), 0 0 0 4px var(--us-warm-accent);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--us-warm-bg);
+  color: var(--us-warm-text);
+  font-family: var(--us-font-ui);
+  font-size: var(--us-font-size-base);
+  line-height: var(--us-line-height);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--us-warm-accent-strong);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--us-focus-ring);
+  border-radius: var(--us-radius-sm);
+}
+
+/* 等宽数字：运维表格里的数字必须能按列对齐比较，比例字体做不到。 */
+.num,
+.mono {
+  font-family: var(--us-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.muted {
+  color: var(--us-warm-text-muted);
+}
+
+.faint {
+  color: var(--us-warm-text-faint);
+}
+
+/* ——————————————— 布局 ——————————————— */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-4);
+  padding: var(--us-space-2) var(--us-space-4);
+  background: var(--us-warm-surface);
+  border-bottom: 1px solid var(--us-warm-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-brand {
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.app-brand .tag {
+  margin-left: var(--us-space-2);
+}
+
+.app-nav {
+  display: flex;
+  gap: var(--us-space-1);
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.app-nav a {
+  padding: var(--us-space-1) var(--us-space-2);
+  border-radius: var(--us-radius-sm);
+  color: var(--us-warm-text-muted);
+  font-size: var(--us-font-size-sm);
+}
+
+.app-nav a:hover {
+  background: var(--us-warm-surface-alt);
+  text-decoration: none;
+}
+
+.app-nav a.router-link-active {
+  background: var(--us-warm-accent-soft);
+  color: var(--us-warm-accent-strong);
+  font-weight: 600;
+}
+
+.app-header-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-3);
+  font-size: var(--us-font-size-sm);
+  color: var(--us-warm-text-muted);
+  white-space: nowrap;
+}
+
+.app-main {
+  flex: 1;
+  padding: var(--us-space-4);
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.app-footer {
+  padding: var(--us-space-3) var(--us-space-4);
+  border-top: 1px solid var(--us-warm-border);
+  font-size: var(--us-font-size-xs);
+  color: var(--us-warm-text-faint);
+}
+
+/* ——————————————— 构件 ——————————————— */
+
+.panel {
+  background: var(--us-warm-surface);
+  border: 1px solid var(--us-warm-border);
+  border-radius: var(--us-radius);
+  box-shadow: var(--us-shadow);
+  margin-bottom: var(--us-space-4);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-3);
+  padding: var(--us-space-2) var(--us-space-3);
+  border-bottom: 1px solid var(--us-warm-border);
+}
+
+.panel-title {
+  font-size: var(--us-font-size-base);
+  font-weight: 650;
+  margin: 0;
+  flex: 1;
+}
+
+.panel-body {
+  padding: var(--us-space-3);
+}
+
+.page-title {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 0 0 var(--us-space-1);
+}
+
+.page-subtitle {
+  margin: 0 0 var(--us-space-4);
+  font-size: var(--us-font-size-sm);
+  color: var(--us-warm-text-muted);
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: var(--us-font-size-xs);
+  font-family: var(--us-font-mono);
+  border: 1px solid var(--us-warm-border-strong);
+  color: var(--us-warm-text-muted);
+  background: var(--us-warm-surface-alt);
+  white-space: nowrap;
+}
+
+.tag.ok {
+  color: var(--us-warm-ok);
+  border-color: var(--us-warm-ok);
+  background: var(--us-warm-ok-soft);
+}
+
+.tag.warn {
+  color: var(--us-warm-warn);
+  border-color: var(--us-warm-warn);
+  background: var(--us-warm-warn-soft);
+}
+
+.tag.danger {
+  color: var(--us-warm-danger);
+  border-color: var(--us-warm-danger);
+  background: var(--us-warm-danger-soft);
+}
+
+.tag.placeholder {
+  border-style: dashed;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--us-space-3);
+}
+
+.stat {
+  border: 1px solid var(--us-warm-border);
+  border-radius: var(--us-radius);
+  padding: var(--us-space-2) var(--us-space-3);
+  background: var(--us-warm-surface-alt);
+}
+
+.stat-label {
+  font-size: var(--us-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--us-warm-text-muted);
+}
+
+.stat-value {
+  font-family: var(--us-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  margin-top: var(--us-space-1);
+  word-break: break-all;
+}
+
+.btn {
+  font: inherit;
+  font-size: var(--us-font-size-sm);
+  padding: var(--us-space-1) var(--us-space-3);
+  border-radius: var(--us-radius-sm);
+  border: 1px solid var(--us-warm-border-strong);
+  background: var(--us-warm-surface);
+  color: var(--us-warm-text);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--us-warm-surface-alt);
+}
+
+.btn.primary {
+  background: var(--us-warm-accent);
+  border-color: var(--us-warm-accent-strong);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--us-warm-accent-strong);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.stage5 {
+  border-style: dashed;
+  color: var(--us-warm-text-faint);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--us-space-1);
+  margin-bottom: var(--us-space-3);
+}
+
+.field label {
+  font-size: var(--us-font-size-sm);
+  color: var(--us-warm-text-muted);
+}
+
+input[type='text'],
+input[type='search'],
+input[type='password'],
+input[type='number'],
+select {
+  font: inherit;
+  padding: var(--us-space-1) var(--us-space-2);
+  border: 1px solid var(--us-warm-border-strong);
+  border-radius: var(--us-radius-sm);
+  background: var(--us-warm-surface);
+  color: var(--us-warm-text);
+  width: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--us-space-3);
+  flex-wrap: wrap;
+}
+
+.toolbar .grow {
+  flex: 1;
+  min-width: 180px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--us-font-size-sm);
+}
+
+table.data th,
+table.data td {
+  text-align: left;
+  padding: var(--us-space-2) var(--us-space-3);
+  border-bottom: 1px solid var(--us-warm-border);
+  vertical-align: top;
+}
+
+table.data th {
+  font-size: var(--us-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--us-warm-text-muted);
+  background: var(--us-warm-surface-alt);
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+
+table.data tbody tr:hover {
+  background: var(--us-warm-accent-soft);
+}
+
+table.data td.cell-id,
+table.data td.cell-time {
+  font-family: var(--us-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.empty-row {
+  text-align: center;
+  color: var(--us-warm-text-faint);
+  padding: var(--us-space-5) !important;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-3);
+  padding: var(--us-space-2) var(--us-space-3);
+  border-top: 1px solid var(--us-warm-border);
+  font-size: var(--us-font-size-sm);
+  color: var(--us-warm-text-muted);
+}
+
+.pager .spacer {
+  flex: 1;
+}
+
+.notice {
+  border: 1px solid var(--us-warm-border-strong);
+  border-left-width: 3px;
+  border-radius: var(--us-radius-sm);
+  padding: var(--us-space-2) var(--us-space-3);
+  font-size: var(--us-font-size-sm);
+  background: var(--us-warm-surface-alt);
+  margin-bottom: var(--us-space-3);
+}
+
+.notice.error {
+  border-left-color: var(--us-warm-danger);
+  background: var(--us-warm-danger-soft);
+  color: var(--us-warm-danger);
+}
+
+.notice.warn {
+  border-left-color: var(--us-warm-warn);
+  background: var(--us-warm-warn-soft);
+}
+
+.notice.info {
+  border-left-color: var(--us-warm-accent);
+  background: var(--us-warm-accent-soft);
+}
+
+.login-wrap {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--us-space-5);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--us-warm-surface);
+  border: 1px solid var(--us-warm-border);
+  border-radius: var(--us-radius);
+  box-shadow: var(--us-shadow-overlay);
+  padding: var(--us-space-5);
+}
+
+.login-card h1 {
+  font-size: 15px;
+  margin: 0 0 var(--us-space-3);
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: var(--us-space-1) var(--us-space-3);
+  font-size: var(--us-font-size-sm);
+}
+
+.kv dt {
+  color: var(--us-warm-text-muted);
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--us-font-mono);
+  word-break: break-all;
+}

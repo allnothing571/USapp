@@ -1,0 +1,74 @@
+# =====================================================================
+# USapp 阶段 0 —— push-worker 服务镜像（Node.js 24 / TypeScript）
+#
+# 状态：本镜像从未被构建过（未执行 docker build / compose build）。
+#       仓库中目前还没有 services/push-worker/src/index.ts，
+#       而 package.json 的 start 脚本指向 dist/index.js。
+#       TODO(负责人)：先补齐入口文件，否则运行阶段会在启动时立刻报错。
+#
+# 构建上下文：仓库根目录（docker-compose.yml 中 context: ..）。
+#            因此所有 COPY 路径都从仓库根算起。
+#
+# 包管理器：pnpm。锁文件 pnpm-lock.yaml 由负责人在本地执行 pnpm install 后生成并提交，
+#          绝不手写（手写锁文件等于伪造完整性校验值）。
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# 阶段 1：构建
+# ---------------------------------------------------------------------
+FROM node:24-alpine AS builder
+
+# corepack 随官方镜像提供，用它启用 pnpm，避免在镜像里 npm i -g pnpm。
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+
+# 先只复制清单文件，让依赖层可以被缓存复用。
+COPY services/push-worker/package.json /app/package.json
+COPY services/push-worker/tsconfig.json /app/tsconfig.json
+
+# TODO(负责人)：下面的 COPY 会在仓库中还没有 services/push-worker/pnpm-lock.yaml 时直接失败。
+#               两种处理方式（二选一，不要都做）：
+#               1) 首选：在宿主机执行
+#                    Set-Location services/push-worker; pnpm install
+#                  生成锁文件后提交，本文件保持 --frozen-lockfile 不变（可复现构建）；
+#               2) 仅限本地一次性尝试：注释掉本 COPY 行，并把下面改成
+#                    RUN pnpm install --no-frozen-lockfile
+#                  不要把 --no-frozen-lockfile 带进任何正式构建。
+COPY services/push-worker/pnpm-lock.yaml /app/pnpm-lock.yaml
+
+RUN pnpm install --frozen-lockfile
+
+# 复制源码后再编译。package.json 的 build 脚本是 `tsc -p tsconfig.json`，
+# 产物目录由 tsconfig.json 的 outDir 决定（当前指向 dist）。
+COPY services/push-worker/ /app/
+
+RUN pnpm run build
+
+# ---------------------------------------------------------------------
+# 阶段 2：运行
+# ---------------------------------------------------------------------
+FROM node:24-alpine AS runtime
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# 只复制运行所需内容：编译产物、生产依赖、清单文件。
+# 不复制 src/、tsconfig.json 与任何开发依赖。
+COPY --from=builder /app/package.json /app/package.json
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/dist /app/dist
+
+# 官方 node 镜像自带非特权用户 node（uid 1000），直接使用，无需再建用户。
+USER node
+
+# 端口说明：容器内绑定 0.0.0.0（见 docker-compose.yml 的 PUSH_WORKER_HOST 覆盖），
+# 但对外只发布到宿主回环 127.0.0.1:8090；该进程默认关闭，由 profile + 环境变量双重门控。
+EXPOSE 8090
+
+# 直接用 node 启动，不经过 pnpm/corepack，减少运行期依赖。
+# 入口文件名与 package.json 的 start 脚本保持一致（dist/index.js）。
+CMD ["node", "dist/index.js"]

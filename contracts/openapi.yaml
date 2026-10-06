@@ -1,0 +1,800 @@
+openapi: 3.1.0
+
+info:
+  title: USapp API（阶段 0 冻结契约）
+  version: 0.1.0
+  description: |
+    阶段 0 只覆盖：登录与会话、注册白名单、情侣空间创建与邀请加入、
+    当前用户/空间查询、健康检查、管理后台骨架。
+
+    契约级硬约束（所有实现必须遵守，后续阶段不得放宽）：
+    - Web 与 API 同源部署，全部接口只允许来自配置的 PUBLIC_ORIGIN。
+    - 正式会话 Cookie 名固定为 `__Host-usapp-session`，属性固定为
+      `Secure; HttpOnly; SameSite=Lax; Path=/`，且**不设置 Domain**。
+    - 登录前使用短期预认证会话；发送验证码与建立会话同样需要
+      预认证会话 + CSRF 令牌 + 精确匹配的 Origin。
+    - 所有状态修改请求（POST/PUT/PATCH/DELETE）必须携带
+      `X-CSRF-Token`，且请求 `Origin` 必须与 PUBLIC_ORIGIN 完全相等（字符串比较）。
+    - 登录成功后必须更换会话标识与 CSRF 令牌。
+    - 所有 `/api/**` 响应必须带 `Cache-Control: no-store`，禁止被 Service Worker 缓存。
+    - 注册白名单只控制“新账号注册”，不定义任何业务权限。
+    - 移除会话（注销）后服务端立即失效会话。
+
+servers:
+  - url: https://localhost:8443
+    description: 本地同源开发入口（Caddy，自签证书，需负责人手动信任）
+  - url: https://usapp.example.invalid
+    description: 生产同源入口占位（域名由负责人补充）
+
+tags:
+  - name: session
+    description: 会话引导、建立与注销
+  - name: auth
+    description: 邮箱验证码登录
+  - name: space
+    description: 情侣空间与邀请
+  - name: admin
+    description: 管理后台（仅回环 / 受信代理可达）
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [session]
+      operationId: getHealth
+      summary: 存活探针（无需会话）
+      security: []
+      responses:
+        '200':
+          description: 服务存活
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /api/v1/session:
+    get:
+      tags: [session]
+      operationId: bootstrapSession
+      summary: 会话引导（同时是 CSRF 令牌获取入口）
+      description: |
+        - 若请求携带有效正式会话：返回 `authenticated=true` 与当前用户/空间。
+        - 否则建立/复用短期预认证会话（TTL 30 分钟），返回 `authenticated=false`。
+        - 任何情况下都返回当前会话绑定的 `csrf_token`。
+        - 该接口本身不修改服务端业务状态，因此不要求 CSRF 令牌；但响应 `no-store`。
+      security: []
+      responses:
+        '200':
+          description: 当前会话状态
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionBootstrap'
+
+  /api/v1/auth/email-codes:
+    post:
+      tags: [auth]
+      operationId: requestEmailCode
+      summary: 发送一次性邮箱验证码
+      description: |
+        - 需要预认证或正式会话 + CSRF 令牌 + 精确 Origin。
+        - 无论目标邮箱是否在白名单、是否已注册，一律返回 202，避免账号枚举。
+        - 白名单只决定“该邮箱能否创建新账号”，在验证码校验阶段才产生 403。
+        - 同一会话 / 同一邮箱存在发送冷却（`resend_after_seconds`）。
+      responses:
+        '202':
+          description: 已受理（不保证邮件已投递）
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailCodeAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/sessions:
+    post:
+      tags: [auth]
+      operationId: createSession
+      summary: 校验验证码并建立正式会话
+      description: |
+        - 需要预认证会话 + CSRF 令牌 + 精确 Origin。
+        - 验证码消费、用户创建/复用、会话轮换必须在同一事务内完成。
+        - 成功时更换会话标识与 CSRF 令牌（旧预认证会话被撤销）。
+        - 若邮箱未注册且不在白名单：403 `REGISTRATION_NOT_ALLOWED`。
+      responses:
+        '200':
+          description: 登录成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionBootstrap'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/sessions:
+    delete:
+      tags: [auth]
+      operationId: deleteSession
+      summary: 注销当前会话
+      description: 需要正式或预认证会话 + CSRF 令牌 + 精确 Origin；服务端立即撤销并清空 Cookie。
+      responses:
+        '204':
+          description: 已注销
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/ClearSessionCookie'
+
+  /api/v1/me:
+    get:
+      tags: [session]
+      operationId: getMe
+      summary: 当前用户与所属空间
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/v1/spaces:
+    post:
+      tags: [space]
+      operationId: createSpace
+      summary: 创建情侣空间（调用者占 slot=1）
+      description: |
+        - 事务内：创建 couples 行 + 创建 couple_members(user_id, couple_id, slot=1)。
+        - 每个用户最多属于一个 couple（couple_members.user_id 唯一约束兜底）。
+      responses:
+        '201':
+          description: 创建成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/spaces/current:
+    get:
+      tags: [space]
+      operationId: getCurrentSpace
+      summary: 查询当前空间与成员
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/spaces/{spaceId}:
+    get:
+      tags: [space]
+      operationId: getSpaceById
+      summary: 按 id 查询空间（仅本空间成员）
+      description: |
+        非本空间成员一律得到 404 `SPACE_NOT_FOUND`（不区分“不存在”与“无权限”），
+        避免通过 id 探测其他情侣空间是否存在。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/spaces/current/invites:
+    get:
+      tags: [space]
+      operationId: listSpaceInvites
+      summary: 列出当前空间邀请
+      description: 只返回元数据，不返回邀请码明文。
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [space]
+      operationId: createSpaceInvite
+      summary: 生成情侣邀请（调用者必须是空间成员）
+      description: |
+        - 邀请码明文只在创建响应中返回一次，数据库只保存 SHA-256。
+        - 空间已满（2 名成员）时返回 409 `SPACE_FULL`。
+      responses:
+        '201':
+          description: 创建成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/spaces/current/invites/{inviteId}:
+    delete:
+      tags: [space]
+      operationId: revokeSpaceInvite
+      summary: 撤销邀请（仅本空间成员）
+      parameters:
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '204':
+          description: 已撤销
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/invites/{code}/accept:
+    post:
+      tags: [space]
+      operationId: acceptInvite
+      summary: 接受邀请并加入情侣空间
+      description: |
+        必须在单个事务内完成：
+        1. 以行锁（`SELECT ... FOR UPDATE`）读取未撤销、未过期、未用尽的邀请；
+        2. 校验邀请所属空间未满；
+        3. 校验调用者尚未加入任何空间；
+        4. 插入 `couple_members`，slot 取该空间当前可用槽位（1 或 2）；
+        5. 递增 `used_count` 并写入 `consumed_*`。
+        任一步失败整体回滚；唯一约束冲突映射为 409。
+      parameters:
+        - $ref: '#/components/parameters/InviteCode'
+      responses:
+        '200':
+          description: 加入成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/admin/v1/health:
+    get:
+      tags: [admin]
+      operationId: getAdminHealth
+      summary: 管理 API 存活探针（仅回环可达）
+      security: []
+      responses:
+        '200':
+          description: 存活
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/v1/session:
+    get:
+      tags: [admin]
+      operationId: bootstrapAdminSession
+      summary: 管理会话引导 / CSRF 获取
+      security: []
+      responses:
+        '200':
+          description: 管理会话状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionBootstrap'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/v1/sessions:
+    post:
+      tags: [admin]
+      operationId: createAdminSession
+      summary: 管理员登录（独立于情侣账号体系）
+      security: []
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionBootstrap'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [admin]
+      operationId: deleteAdminSession
+      summary: 管理员注销
+      responses:
+        '204':
+          description: 已注销
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/v1/users:
+    get:
+      tags: [admin]
+      operationId: adminListUsers
+      summary: 用户列表骨架（只读分页）
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Query'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/v1/couples:
+    get:
+      tags: [admin]
+      operationId: adminListCouples
+      summary: 情侣空间列表骨架（只读分页）
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCoupleList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/v1/audit-logs:
+    get:
+      tags: [admin]
+      operationId: adminListAuditLogs
+      summary: 审计日志骨架（只读分页）
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuditLogList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    CookieSession:
+      type: apiKey
+      in: cookie
+      name: __Host-usapp-session
+      description: 会话 Cookie；状态修改请求同时必须携带 X-CSRF-Token 与匹配 Origin。
+
+  headers:
+    NoStore:
+      description: 所有 API 响应强制 no-store
+      schema:
+        type: string
+        const: no-store, no-cache, must-revalidate
+    SetSessionCookie:
+      description: __Host- 前缀要求 Secure + Path=/ + 无 Domain
+      schema:
+        type: string
+        examples:
+          - '__Host-usapp-session=<opaque>; Path=/; Secure; HttpOnly; SameSite=Lax'
+    ClearSessionCookie:
+      schema:
+        type: string
+        examples:
+          - '__Host-usapp-session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'
+
+  parameters:
+    SpaceId:
+      name: spaceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InviteCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string, minLength: 12, maxLength: 128 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Query:
+      name: query
+      in: query
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    BadRequest:
+      description: 参数校验失败
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            validation:
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: 请求参数不合法
+    Unauthenticated:
+      description: 未认证或会话已失效 / 验证码错误
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Origin / CSRF / 白名单 / 管理访问来源校验失败
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            csrf:
+              value:
+                error:
+                  code: CSRF_TOKEN_INVALID
+                  message: CSRF 令牌校验失败
+            origin:
+              value:
+                error:
+                  code: ORIGIN_NOT_ALLOWED
+                  message: 请求来源不被允许
+            whitelist:
+              value:
+                error:
+                  code: REGISTRATION_NOT_ALLOWED
+                  message: 该邮箱不在注册白名单内
+    NotFound:
+      description: 资源不存在（或无权限，故意不区分）
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 状态冲突（空间已存在 / 空间已满 / 已在其他空间 / 邀请已被使用）
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: 触发冷却或频率限制
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    Health:
+      type: object
+      required: [status, version, time]
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string }
+        time: { type: string, format: date-time }
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - UNAUTHENTICATED
+                - CSRF_TOKEN_INVALID
+                - ORIGIN_NOT_ALLOWED
+                - RATE_LIMITED
+                - CODE_INVALID_OR_EXPIRED
+                - REGISTRATION_NOT_ALLOWED
+                - SPACE_NOT_FOUND
+                - SPACE_ALREADY_EXISTS
+                - SPACE_FULL
+                - INVITE_INVALID_OR_EXPIRED
+                - INVITE_REVOKED
+                - ALREADY_IN_SPACE
+                - NOT_FOUND
+                - INTERNAL_ERROR
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: true
+
+    User:
+      type: object
+      required: [id, email, display_name, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SpaceMember:
+      type: object
+      required: [user_id, slot, display_name, joined_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        slot: { type: integer, enum: [1, 2] }
+        display_name: { type: string }
+        joined_at: { type: string, format: date-time }
+
+    Space:
+      type: object
+      required: [id, name, timezone, member_count, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        timezone:
+          type: string
+          description: 阶段 0 固定为 Asia/Shanghai，但字段保留以便后续调整
+          const: Asia/Shanghai
+        member_count: { type: integer, minimum: 0, maximum: 2 }
+        created_at: { type: string, format: date-time }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/SpaceMember' }
+
+    Invite:
+      type: object
+      required: [id, expires_at, created_at, max_uses, used_count]
+      properties:
+        id: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        max_uses: { type: integer }
+        used_count: { type: integer }
+        revoked: { type: boolean }
+
+    CreatedInvite:
+      allOf:
+        - $ref: '#/components/schemas/Invite'
+        - type: object
+          required: [code, invite_url]
+          properties:
+            code:
+              type: string
+              description: 明文邀请码，仅在创建响应中出现一次
+            invite_url:
+              type: string
+              format: uri
+              description: 形如 {PUBLIC_ORIGIN}/invite/{code}
+
+    SessionBootstrap:
+      type: object
+      required: [authenticated, csrf_token]
+      properties:
+        authenticated: { type: boolean }
+        csrf_token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+        space:
+          oneOf:
+            - $ref: '#/components/schemas/Space'
+            - type: 'null'
+        pre_auth_expires_at: { type: string, format: date-time }
+
+    EmailCodeAccepted:
+      type: object
+      required: [resend_after_seconds, expires_in_seconds]
+      properties:
+        resend_after_seconds: { type: integer }
+        expires_in_seconds: { type: integer }
+
+    MeResponse:
+      type: object
+      required: [user]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        space:
+          oneOf:
+            - $ref: '#/components/schemas/Space'
+            - type: 'null'
+
+    SpaceResponse:
+      type: object
+      required: [space]
+      properties:
+        space: { $ref: '#/components/schemas/Space' }
+
+    InviteResponse:
+      type: object
+      required: [invite]
+      properties:
+        invite: { $ref: '#/components/schemas/CreatedInvite' }
+
+    InviteListResponse:
+      type: object
+      required: [invites]
+      properties:
+        invites:
+          type: array
+          items: { $ref: '#/components/schemas/Invite' }
+
+    AdminSessionBootstrap:
+      type: object
+      required: [authenticated, csrf_token]
+      properties:
+        authenticated: { type: boolean }
+        csrf_token: { type: string }
+        admin:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            username: { type: string }
+
+    AdminUserList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              email: { type: string }
+              display_name: { type: string }
+              status: { type: string }
+              created_at: { type: string, format: date-time }
+        next_cursor:
+          oneOf: [{ type: string }, { type: 'null' }]
+
+    AdminCoupleList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              member_count: { type: integer }
+              created_at: { type: string, format: date-time }
+        next_cursor:
+          oneOf: [{ type: string }, { type: 'null' }]
+
+    AdminAuditLogList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              actor_type: { type: string, enum: [user, admin, system] }
+              action: { type: string }
+              created_at: { type: string, format: date-time }
+        next_cursor:
+          oneOf: [{ type: string }, { type: 'null' }]
+
+security:
+  - CookieSession: []

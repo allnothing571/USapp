@@ -1,0 +1,195 @@
+# =====================================================================
+# USapp 阶段 0 —— Docker Compose 部署编排
+#
+# 状态：尚未执行。本文件从未被 docker compose 解析、构建或启动过，
+#       所有端口、健康检查、网络与依赖关系均未做连通性验证。
+#       执行命令由负责人手动完成，清单见 docs/phase0-handoff.md。
+#
+# 基本安全约定：
+#   - 根目录 .env 提供变量插值来源，各服务严格显式声明所需变量，杜绝秘密全量下发。
+#   - postgres 官方镜像由 POSTGRES_SUPERUSER 初始化为超级用户，api 仅使用受限 usapp_api 运行。
+#   - api 绝不持有超级用户密码；push-worker 绝不持有 SESSION_SECRET 与超级用户密码。
+#   - 唯一对外入口是 caddy (8443)；管理控制台 (8444) 严格限制发布至宿主回环 127.0.0.1。
+#   - 容器内测试运行器 (test-runner) 复用 Dockerfile.api 构建阶段，仅由 profile=test 显式触发。
+# =====================================================================
+
+name: usapp
+
+services:
+  # ------------------------------------------------------------------
+  # PostgreSQL 17
+  # ------------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-usapp}
+      # 官方镜像以 POSTGRES_USER 初始化超级用户，这里严格绑定为超级用户变量，杜绝将 usapp_api 错配为超级用户
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      # 传递给 01-init-roles.sh 供其创建应用运行角色与受限推送角色
+      POSTGRES_API_USER: ${POSTGRES_USER:-usapp_api}
+      POSTGRES_API_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PUSH_USER: ${POSTGRES_PUSH_USER:-usapp_push}
+      POSTGRES_PUSH_PASSWORD: ${POSTGRES_PUSH_PASSWORD:-change-me-locally}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - usapp_net
+    # 数据库默认不对宿主机发布任何端口（最小暴露面）。
+    # 仅当负责人需要在宿主机使用本地开发工具直连时，才临时发布回环端口：
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  # ------------------------------------------------------------------
+  # api —— C++17 / Drogon 模块化单体（公开监听器 + 管理监听器）
+  # ------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://localhost:8443}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-https://localhost:8444}
+      API_PUBLIC_BIND: 0.0.0.0
+      API_PUBLIC_PORT: ${API_PUBLIC_PORT:-8080}
+      API_ADMIN_BIND: 0.0.0.0
+      API_ADMIN_PORT: ${API_ADMIN_PORT:-8081}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-127.0.0.1/32,::1/128,172.28.0.0/16}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-usapp}
+      POSTGRES_USER: ${POSTGRES_USER:-usapp_api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-8}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-WHITELIST}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+      EMAIL_CODE_TTL_SECONDS: ${EMAIL_CODE_TTL_SECONDS:-600}
+      EMAIL_CODE_MAX_ATTEMPTS: ${EMAIL_CODE_MAX_ATTEMPTS:-5}
+      EMAIL_CODE_RESEND_COOLDOWN_SECONDS: ${EMAIL_CODE_RESEND_COOLDOWN_SECONDS:-60}
+      EMAIL_CODE_HOURLY_LIMIT: ${EMAIL_CODE_HOURLY_LIMIT:-8}
+      PREAUTH_SESSION_TTL_SECONDS: ${PREAUTH_SESSION_TTL_SECONDS:-1800}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-2592000}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-__Host-usapp-session}
+      ADMIN_SESSION_COOKIE_NAME: ${ADMIN_SESSION_COOKIE_NAME:-__Host-usapp-admin}
+      SESSION_SECRET: ${SESSION_SECRET}
+      MAIL_MODE: ${MAIL_MODE:-log}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@example.com}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_TICK_INTERVAL_MS: ${SCHEDULER_TICK_INTERVAL_MS:-15000}
+      SCHEDULER_INSTANCE_ID: ${SCHEDULER_INSTANCE_ID:-}
+      SCHEDULER_KEY_NAMESPACE: ${SCHEDULER_KEY_NAMESPACE:-usapp.scheduler}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+    ports:
+      # 管理监听器仅发布至宿主回环 127.0.0.1，供负责人本机直接排查
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - usapp_net
+
+  # ------------------------------------------------------------------
+  # push-worker —— Node.js 24 / TS 推送辅助进程（默认关闭、可选启用）
+  # ------------------------------------------------------------------
+  push-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.push-worker
+    restart: unless-stopped
+    profiles: ["push"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+      PUSH_WORKER_ENABLED: ${PUSH_WORKER_ENABLED:-false}
+      PUSH_WORKER_HOST: 0.0.0.0
+      PUSH_WORKER_PORT: 8090
+      PUSH_WORKER_POLL_INTERVAL_MS: ${PUSH_WORKER_POLL_INTERVAL_MS:-15000}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-usapp}
+      POSTGRES_USER: ${POSTGRES_PUSH_USER:-usapp_push}
+      POSTGRES_PASSWORD: ${POSTGRES_PUSH_PASSWORD:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - usapp_net
+
+  # ------------------------------------------------------------------
+  # test-runner —— 阶段 0 容器内测试运行器（profile=test，手动触发）
+  # ------------------------------------------------------------------
+  test-runner:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      target: tester
+    profiles: ["test"]
+    environment:
+      USAPP_ROOT: /workspace
+      # 测试数据库在同一网络中直接访问，无外部端口依赖
+      USAPP_TEST_DSN: "postgresql://${POSTGRES_USER:-usapp_api}:${POSTGRES_PASSWORD}@postgres:5432/usapp_test"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - usapp_net
+
+  # ------------------------------------------------------------------
+  # caddy —— 唯一公网入口（同源网页 + API 反向代理）
+  # ------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+      # 管理站点严格限制发布至宿主机回环地址 127.0.0.1，禁止绑定 0.0.0.0
+      - "127.0.0.1:8444:8444"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../apps/web/dist:/srv/web:ro
+      - ../apps/admin/dist:/srv/admin:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - usapp_net
+
+volumes:
+  pgdata:
+    name: usapp_pgdata
+  caddy_data:
+    name: usapp_caddy_data
+  caddy_config:
+    name: usapp_caddy_config
+
+networks:
+  usapp_net:
+    name: usapp_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
