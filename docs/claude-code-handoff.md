@@ -1,6 +1,6 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
-Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6).
+Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6). Subsequently: recorded owner-run live user-side email-code Origin/CSRF negative checks and administrator session persistence after rejected logout requests (Section 6).
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
 ## 1. Responsibilities, Authorization, and Current Objective
@@ -102,7 +102,7 @@ The owner ran these checks under Codex's guidance after the fix:
 ### Limits of This Evidence
 
 - Invalid, expired, and revoked sessions were exercised by the `db_gated` test against the test database, not by separate live requests against the running service.
-- A wrong or missing `X-CSRF-Token` on an authenticated administrator write was covered by tests only at the time of these results. A later live check on logout returned `403 CSRF_TOKEN_INVALID` for both cases (Section 6, "Administrator CSRF Live Checks"); session persistence after those rejections was not confirmed.
+- A wrong or missing `X-CSRF-Token` on an authenticated administrator write was covered by tests only at the time of these results. A later live check on logout returned `403 CSRF_TOKEN_INVALID` for both cases, and the administrator session remained authenticated after each rejection (Section 6, "Administrator CSRF Live Checks").
 - HEAD and OPTIONS requests to administrator routes were checked only at filter level in unit tests. Whether Drogon rewrites HEAD to GET or answers OPTIONS before filters run has not been verified.
 - Local address isolation and these targeted checks are not proof of complete authentication enforcement. No exhaustive security review or penetration test has been performed.
 
@@ -252,7 +252,18 @@ Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push
 
 - An authenticated administrator `DELETE /api/admin/v1/sessions` (logout) with a missing `X-CSRF-Token` returned `403 CSRF_TOKEN_INVALID`.
 - The same request with an incorrect `X-CSRF-Token` also returned `403 CSRF_TOKEN_INVALID`.
-- Limits: whether the administrator session remained valid after those rejected requests was not separately confirmed by the owner; do not infer it. Invalid, expired, and revoked session cookies remain test-only (Section 2).
+- Immediately after each rejection (2026-10-06), `GET /api/admin/v1/session` returned HTTP 200 with `authenticated=true`, so the rejected logout requests did not end the administrator session.
+- Limits: this covers the logout write only, with missing and incorrect tokens. Invalid, expired, and revoked session cookies remain test-only (Section 2).
+
+### User-Side Email-Code Origin/CSRF Live Checks (Owner-Run, 2026-10-06)
+
+Endpoint: `POST /api/v1/auth/email-codes` on the user entry point.
+
+- Wrong Origin: HTTP 403 `ORIGIN_NOT_ALLOWED`; curl exit code 0 (transport success, not an authorization result).
+- Existing session, missing `X-CSRF-Token`: HTTP 403 `CSRF_TOKEN_INVALID`.
+- Existing session, incorrect `X-CSRF-Token`: HTTP 403 `CSRF_TOKEN_INVALID`.
+- The two token checks were sent with browser `fetch` and an empty JSON object body.
+- Limits: targeted negative checks on one endpoint. They are not exhaustive user-side security verification; other user-side state-changing endpoints were not checked live in this way.
 
 ### Scheduler Heartbeat (Owner-Run)
 
@@ -261,10 +272,15 @@ Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push
 - This confirms that heartbeat jobs were executing and completing in the running service at that time.
 - Limits: a single point-in-time query. It is not live multi-instance concurrency verification; advisory-lock mutual exclusion and rollback release are covered by the `db_gated` test only.
 
+### Session Migration to Claude Code (2026-10-06; Documentation and Configuration Only)
+
+- Work moved from a Claude (Cowork) session to Claude Code. Two files were added: `CLAUDE.md` (standing instructions for Claude Code) and `.claude/settings.json` (project permission rules denying Git, container, package-manager/install, build/test, and database commands, and reads of real environment files and `backups/`).
+- Limits: documentation and configuration only. No code, test, contract, migration, or deployment file changed, and no build, test, database, container, or Git command was run. This adds no runtime verification and is not Phase 0 acceptance. Whether the installed Claude Code version enforces every rule in `.claude/settings.json` has not been verified.
+
 ## 7. Known Issues and Outstanding Acceptance Work
 
 1. **Resolved: unauthenticated administrator reads.** Fixed, rebuilt, tested, and checked at runtime; see Section 2 for results and the limits of that evidence.
-2. Administrator negative checks, partially done. Live results: wrong login Origin returned `403 ORIGIN_NOT_ALLOWED`; missing `X-Requested-By` returned `403 CSRF_TOKEN_INVALID`; anonymous lists returned 401; the list request after logout returned `UNAUTHENTICATED`. An authenticated administrator logout with a missing or incorrect `X-CSRF-Token` also returned `403 CSRF_TOKEN_INVALID` live (Section 6, "Administrator CSRF Live Checks"); session persistence after those rejected requests was not confirmed. Still covered only by automated tests, with no separate live check: invalid, expired, and revoked session cookies. Passing tests does not prove complete access-control correctness.
+2. Administrator negative checks, partially done. Live results: wrong login Origin returned `403 ORIGIN_NOT_ALLOWED`; missing `X-Requested-By` returned `403 CSRF_TOKEN_INVALID`; anonymous lists returned 401; the list request after logout returned `UNAUTHENTICATED`. An authenticated administrator logout with a missing or incorrect `X-CSRF-Token` also returned `403 CSRF_TOKEN_INVALID` live, and `GET /api/admin/v1/session` immediately afterward still returned `authenticated=true` (Section 6, "Administrator CSRF Live Checks"). User-side `POST /api/v1/auth/email-codes` rejected a wrong Origin and a missing or incorrect `X-CSRF-Token` with 403 live (Section 6, "User-Side Email-Code Origin/CSRF Live Checks"). Still covered only by automated tests, with no separate live check: invalid, expired, and revoked session cookies. Passing tests does not prove complete access-control correctness.
 3. **Resolved: HomeView member label.** Previously, `apps/web/src/views/HomeView.vue` used `item.member?.display_name || ...`, so a member with an empty nickname was labeled "Vacant" while the badge said "Joined." The vacancy label now renders only when `item.member` is absent; an existing member shows their nickname or a Chinese fallback meaning "Nickname not set." Owner results: the user-frontend build passed; after the app's update prompt and a refresh, both members displayed the "Nickname not set" label with "Joined" badges, and membership remained 2/2. Limits: user-frontend unit tests were not reported as rerun after this change; a member with a non-empty nickname was not separately shown after the change; membership data was not modified.
 4. `Transaction roll back error` occurred alongside the invitation-acceptance parameter-binding error. After the type fix, the real invitation workflow and regression passed. The explanation that malformed binary binding necessarily prevents subsequent rollback is unverified. Do not refactor transactions on that assumption or claim all rollback failures have been excluded.
 5. Line buffering was built and deployed. The owner later obtained codes and logged in successfully but did not separately confirm that every log appeared immediately. Do not report complete log-timing verification.
@@ -274,6 +290,7 @@ Documentation-only changes made after `b9cd0ea` to prepare the first GitHub push
 
 ## 8. Document Reliability and Reading Order
 
+- `CLAUDE.md` and `.claude/settings.json`: standing instructions and project permission rules for Claude Code. Read `CLAUDE.md` first; the permission rules deny commands the owner runs (Section 1) and reads of real environment files and `backups/`.
 - `docs/phase0-acceptance.md`: concise Phase 0 acceptance matrix derived from the evidence in this document; final owner acceptance is pending.
 - `contracts/openapi.yaml`: interface contract. Do not change it to allow unauthenticated list access.
 - `services/api/src/http/AdminFilter.cc`, `AdminFilter.h`, `controllers/AdminController.cc`, and `services/AdminAuthService.cc`: direct entry points for the administrator authentication fix (resolved; see Section 2); controller/service paths are relative to `services/api/src/`.

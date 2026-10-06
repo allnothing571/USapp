@@ -20,7 +20,7 @@ This matrix does not claim production readiness or exhaustive security verificat
 | Builds and tests | Yes | n/a | Post-fix per-assertion counts not recorded |
 | Ordinary-user authentication | Yes | Session lifecycle in `db_gated` | Real email delivery unverified |
 | Two-member binding | Yes | Slot, invite, and repeat-acceptance rules | Rollback-error explanation unverified |
-| Administrator access controls | Yes | Invalid/expired/revoked sessions, bypass probes | Not exhaustive; session state after rejected writes unconfirmed |
+| Administrator access controls | Yes | Invalid/expired/revoked sessions, bypass probes | Not exhaustive; session persistence checked only after rejected logout |
 | Installed / offline app | Yes | n/a | First-launch blank screen unexplained; cache check was a snapshot |
 | Backup / recovery | Yes | n/a | No row-by-row, off-site, encrypted, or timing proof |
 | Scheduler | Yes (heartbeat) | Advisory-lock exclusion | No live multi-instance concurrency check |
@@ -47,11 +47,13 @@ This matrix does not claim production readiness or exhaustive security verificat
   - Refresh preserved both sessions.
   - Logging out the second account did not affect the first.
   - Offline failure of session bootstrap showed the login page; after the network returned, a refresh restored the authenticated home page.
+  - `POST /api/v1/auth/email-codes` with a wrong Origin returned `403 ORIGIN_NOT_ALLOWED` (curl exit code 0).
+  - The same endpoint with an existing session and a missing or an incorrect `X-CSRF-Token` returned `403 CSRF_TOKEN_INVALID` (browser `fetch`, empty JSON object body).
 - **Test-only:** pre-authentication and authenticated session lifecycle, session-fixation protection, and revocation at the database level (`db_gated`).
 - **Limitations:**
   - Real email delivery is unverified.
   - Immediate appearance of every code log line was not separately confirmed.
-  - No live user-side Origin/CSRF negative checks are recorded.
+  - Live user-side Origin/CSRF negative checks cover only `POST /api/v1/auth/email-codes`; they are not exhaustive user-side security verification.
 
 ## 3. Two-member binding
 
@@ -78,6 +80,7 @@ This matrix does not claim production readiness or exhaustive security verificat
   - Login with a wrong Origin returned `403 ORIGIN_NOT_ALLOWED`.
   - Login with a missing `X-Requested-By` returned `403 CSRF_TOKEN_INVALID`.
   - An authenticated logout (`DELETE /api/admin/v1/sessions`) with a missing or an incorrect `X-CSRF-Token` returned `403 CSRF_TOKEN_INVALID`.
+  - Immediately after each rejected logout, `GET /api/admin/v1/session` returned 200 with `authenticated=true`.
 - **Test-only:**
   - Invalid, expired, and revoked session cookies.
   - Another session's CSRF token.
@@ -86,7 +89,7 @@ This matrix does not claim production readiness or exhaustive security verificat
   - Fail-closed behavior when sessions cannot be loaded.
   - Rejection of the same token after revocation.
 - **Limitations:**
-  - Whether the session remained valid after the rejected logout requests was not confirmed.
+  - Session persistence after a rejected write was checked only for logout with missing and incorrect tokens.
   - HEAD/OPTIONS handling is verified only at filter level.
   - Loopback isolation and these targeted checks are not an exhaustive security review.
 
