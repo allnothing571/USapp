@@ -77,6 +77,11 @@ export interface MeResponse {
   space?: Space | null
 }
 
+/** `#/components/schemas/UpdateMeRequest`（阶段 1 M1）：只允许这一个字段。 */
+export interface UpdateMeRequest {
+  display_name: string
+}
+
 /** `#/components/schemas/SpaceResponse` */
 export interface SpaceResponse {
   space: Space

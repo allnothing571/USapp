@@ -149,6 +149,19 @@ export const useSessionStore = defineStore('session', () => {
     useSpaceStore().hydrate(payload.space ?? null)
   }
 
+  /**
+   * `PATCH /api/v1/me` —— 修改自己的昵称。
+   * 只有服务端确认成功后才用返回的快照更新 user 与成员槽位；
+   * 任何失败（校验、离线、网络、CSRF）都原样抛出，本地状态保持不变。
+   */
+  async function updateDisplayName(displayName: string): Promise<void> {
+    await ensureCsrfToken()
+    const payload = await authApi.updateMe({ display_name: displayName })
+    user.value = payload.user
+    space.value = payload.space ?? null
+    useSpaceStore().hydrate(payload.space ?? null)
+  }
+
   /** 把新空间写回会话快照（创建 / 接受邀请成功后调用）。 */
   function setSpace(next: Space | null): void {
     space.value = next
@@ -202,6 +215,7 @@ export const useSessionStore = defineStore('session', () => {
     requestEmailCode,
     login,
     refreshMe,
+    updateDisplayName,
     setSpace,
     logout,
   }

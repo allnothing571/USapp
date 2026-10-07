@@ -24,6 +24,7 @@
 #include "http/ControllerSupport.h"
 #include "http/HttpUtil.h"
 #include "scheduler/LockKey.h"
+#include "services/ProfileService.h"
 #include "services/RegistrationPolicy.h"
 
 int main() {
@@ -165,6 +166,99 @@ int main() {
         CHECK(crypto::canonicalizeEmail("  Test.User+Tag@Example.COM  ", canon));
         CHECK_EQ(canon.canonical, "test.user+tag@example.com");
         CHECK_FALSE(crypto::canonicalizeEmail("invalid-email-no-at", canon));
+    }
+
+    // -----------------------------------------------------------------
+    // 5b. 昵称校验（阶段 1 M1）：按 Unicode 码点计数，首尾空白裁剪，
+    //     控制字符 / 换行 / 非法 UTF-8 一律拒绝。纯函数，无数据库。
+    // -----------------------------------------------------------------
+    TEST_CASE("ProfileService: 昵称校验与规范化（码点计数、裁剪、拒绝控制字符与非法 UTF-8）") {
+        using E = ProfileService::DisplayNameError;
+        auto repeat = [](const std::string &unit, int n) {
+            std::string out;
+            for (int i = 0; i < n; ++i) {
+                out += unit;
+            }
+            return out;
+        };
+        auto check = [](const std::string &raw, E expected, const std::string &expectedOut) {
+            std::string out = "sentinel";
+            const E actual = ProfileService::normalizeDisplayName(raw, out);
+            CHECK(actual == expected);
+            CHECK_EQ(out, expectedOut);  // 失败时 out 必须被清空
+        };
+
+        const std::string han = "\xE5\x90\x8D";            // U+540D，3 字节，1 个码点
+        const std::string emoji = "\xF0\x9F\x98\x80";      // U+1F600，4 字节，UTF-16 下 2 个码元
+        const std::string ideoSpace = "\xE3\x80\x80";      // U+3000 表意空格
+        const std::string nbsp = "\xC2\xA0";               // U+00A0
+
+        // ASCII 与边界：1 与 20 个码点通过，21 个拒绝。
+        check("A", E::None, "A");
+        check("Alice", E::None, "Alice");
+        check(std::string(20, 'a'), E::None, std::string(20, 'a'));
+        check(std::string(21, 'a'), E::TooLong, "");
+
+        // 中文：20 个汉字是 60 字节，仍按 20 个码点计。
+        check(repeat(han, 20), E::None, repeat(han, 20));
+        check(repeat(han, 21), E::TooLong, "");
+
+        // Emoji：20 个是 80 字节 / 40 个 UTF-16 码元，仍按 20 个码点计。
+        check(repeat(emoji, 20), E::None, repeat(emoji, 20));
+        check(repeat(emoji, 21), E::TooLong, "");
+        check(repeat(emoji, 10) + repeat(han, 10), E::None, repeat(emoji, 10) + repeat(han, 10));
+
+        // 首尾空白裁剪；内部空白保留；裁剪后再计数。
+        check("  Alice  ", E::None, "Alice");
+        check(ideoSpace + han + han + ideoSpace, E::None, han + han);
+        check(nbsp + "Bob" + nbsp, E::None, "Bob");
+        check("Al ice", E::None, "Al ice");
+        check("  " + std::string(20, 'a') + "  ", E::None, std::string(20, 'a'));
+        check("  " + std::string(21, 'a') + "  ", E::TooLong, "");
+
+        // 空输入与纯空白。
+        check("", E::Empty, "");
+        check("   ", E::Empty, "");
+        check(ideoSpace + nbsp + " ", E::Empty, "");
+
+        // 控制字符（任何位置）：C0、NUL、DEL、C1，以及制表符。
+        check("A\x01" "B", E::ControlCharacter, "");
+        check(std::string("A\0B", 3), E::ControlCharacter, "");
+        check("A\x7F", E::ControlCharacter, "");
+        check("A\xC2\x9F" "B", E::ControlCharacter, "");  // U+009F（C1）
+        check("A\tB", E::ControlCharacter, "");
+        check("\tAlice", E::ControlCharacter, "");
+
+        // 换行（任何位置，含首尾——不会被当作空白裁掉）。
+        check("Alice\n", E::ControlCharacter, "");
+        check("\nAlice", E::ControlCharacter, "");
+        check("A\r\nB", E::ControlCharacter, "");
+        check("A\rB", E::ControlCharacter, "");
+        check("A\xC2\x85" "B", E::ControlCharacter, "");      // U+0085 NEL
+        check("A\xE2\x80\xA8" "B", E::ControlCharacter, "");  // U+2028 行分隔符
+        check("A\xE2\x80\xA9" "B", E::ControlCharacter, "");  // U+2029 段分隔符
+
+        // 非法 UTF-8。
+        check("\xFF", E::InvalidUtf8, "");
+        check("\x80", E::InvalidUtf8, "");                 // 孤立续字节
+        check("A\xC3", E::InvalidUtf8, "");                // 截断的 2 字节序列
+        check("A\xE5\x90", E::InvalidUtf8, "");            // 截断的 3 字节序列
+        check("\xC0\xAF", E::InvalidUtf8, "");             // 过长编码（2 字节）
+        check("\xE0\x80\xAF", E::InvalidUtf8, "");         // 过长编码（3 字节）
+        check("\xF0\x80\x80\xAF", E::InvalidUtf8, "");     // 过长编码（4 字节）
+        check("\xED\xA0\x80", E::InvalidUtf8, "");         // UTF-16 代理项 U+D800
+        check("\xF4\x90\x80\x80", E::InvalidUtf8, "");     // 超出 U+10FFFF
+        check("A\xE5\x41\x8D", E::InvalidUtf8, "");        // 续字节位置不是续字节
+
+        // 超大原始输入不做逐字符解码，直接判为过长。
+        check(std::string(ProfileService::kDisplayNameMaxRawBytes + 1, ' '), E::TooLong, "");
+
+        // 提示文案存在且不回显输入。
+        CHECK(std::string(ProfileService::displayNameErrorMessage(E::TooLong)).find("20") !=
+              std::string::npos);
+        CHECK_FALSE(std::string(ProfileService::displayNameErrorMessage(E::Empty)).empty());
+        CHECK_FALSE(std::string(ProfileService::displayNameErrorMessage(E::ControlCharacter)).empty());
+        CHECK_FALSE(std::string(ProfileService::displayNameErrorMessage(E::InvalidUtf8)).empty());
     }
 
     // -----------------------------------------------------------------

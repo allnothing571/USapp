@@ -16,6 +16,7 @@ vi.mock('@/api/auth', () => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   getMe: vi.fn(),
+  updateMe: vi.fn(),
 }))
 
 vi.mock('@/api/space', () => ({
@@ -31,6 +32,7 @@ vi.mock('@/api/space', () => ({
 }))
 
 import * as authApi from '@/api/auth'
+import { ApiError, OfflineMutationBlockedError } from '@/api/client'
 import { getCsrfToken } from '@/api/csrf'
 import type { SessionBootstrap, Space, User } from '@/api/types'
 import { useSessionStore } from '@/stores/session'
@@ -123,6 +125,73 @@ describe('bootstrap', () => {
     expect(session.csrfToken).toBeNull()
     expect(getCsrfToken()).toBeNull()
     expect(warn).toHaveBeenCalled()
+  })
+})
+
+describe('updateDisplayName（M1）', () => {
+  it('成功后用服务端快照更新当前用户与自己的成员槽位，对方槽位不变', async () => {
+    vi.mocked(authApi.bootstrapSession).mockResolvedValue(authenticatedPayload())
+    const renamedUser: User = { ...USER, display_name: '新昵称' }
+    const renamedSpace: Space = {
+      ...SPACE,
+      members: [
+        { user_id: 'user-1', slot: 1, display_name: '新昵称', joined_at: '2025-01-02T00:00:00Z' },
+        { user_id: 'user-2', slot: 2, display_name: '小 B', joined_at: '2025-01-03T00:00:00Z' },
+      ],
+    }
+    vi.mocked(authApi.updateMe).mockResolvedValue({ user: renamedUser, space: renamedSpace })
+
+    const session = useSessionStore()
+    const spaceStore = useSpaceStore()
+    await session.bootstrap()
+
+    await session.updateDisplayName('新昵称')
+
+    expect(authApi.updateMe).toHaveBeenCalledTimes(1)
+    expect(authApi.updateMe).toHaveBeenCalledWith({ display_name: '新昵称' })
+    expect(session.user?.display_name).toBe('新昵称')
+    expect(spaceStore.members.find((m) => m.slot === 1)?.display_name).toBe('新昵称')
+    expect(spaceStore.members.find((m) => m.slot === 2)?.display_name).toBe('小 B')
+    expect(spaceStore.members).toHaveLength(2)
+    // 会话与 CSRF 不受影响。
+    expect(session.status).toBe('authenticated')
+    expect(getCsrfToken()).toBe('csrf-1')
+  })
+
+  it('服务端校验失败时原样抛出，本地 user / space / 成员保持不变', async () => {
+    vi.mocked(authApi.bootstrapSession).mockResolvedValue(authenticatedPayload())
+    vi.mocked(authApi.updateMe).mockRejectedValue(
+      new ApiError('VALIDATION_ERROR', '昵称最多 20 个字符', 400),
+    )
+
+    const session = useSessionStore()
+    const spaceStore = useSpaceStore()
+    await session.bootstrap()
+
+    await expect(session.updateDisplayName('x'.repeat(21))).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    })
+
+    expect(session.user).toEqual(USER)
+    expect(session.space).toEqual(SPACE)
+    expect(spaceStore.members).toEqual(SPACE.members)
+    expect(session.status).toBe('authenticated')
+  })
+
+  it('离线被拦下时原样抛出，本地状态保持不变', async () => {
+    vi.mocked(authApi.bootstrapSession).mockResolvedValue(authenticatedPayload())
+    vi.mocked(authApi.updateMe).mockRejectedValue(new OfflineMutationBlockedError())
+
+    const session = useSessionStore()
+    const spaceStore = useSpaceStore()
+    await session.bootstrap()
+
+    await expect(session.updateDisplayName('新昵称')).rejects.toBeInstanceOf(
+      OfflineMutationBlockedError,
+    )
+
+    expect(session.user).toEqual(USER)
+    expect(spaceStore.members).toEqual(SPACE.members)
   })
 })
 

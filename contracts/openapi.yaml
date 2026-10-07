@@ -1,11 +1,14 @@
 openapi: 3.1.0
 
 info:
-  title: USapp API（阶段 0 冻结契约）
-  version: 0.1.0
+  title: USapp API（阶段 0 冻结契约 + 阶段 1 增量）
+  version: 0.2.0
   description: |
     阶段 0 只覆盖：登录与会话、注册白名单、情侣空间创建与邀请加入、
     当前用户/空间查询、健康检查、管理后台骨架。
+
+    0.2.0 起为阶段 1 的增量版本：阶段 0 的全部操作、字段与行为保持冻结不变；
+    阶段 1 只新增操作。当前新增：`PATCH /api/v1/me`（修改自己的昵称，M1）。
 
     契约级硬约束（所有实现必须遵守，后续阶段不得放宽）：
     - Web 与 API 同源部署，全部接口只允许来自配置的 PUBLIC_ORIGIN。
@@ -168,6 +171,40 @@ paths:
                 $ref: '#/components/schemas/MeResponse'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+    patch:
+      tags: [session]
+      operationId: updateMe
+      summary: 修改当前用户自己的昵称（阶段 1 M1）
+      description: |
+        - 需要正式会话 + CSRF 令牌 + 精确 Origin；预认证会话返回 401。
+        - 被修改的用户只取自服务端会话；请求体不能指定目标用户。
+          请求体只允许一个字段 `display_name`，出现任何其他字段返回 400。
+        - 去掉首尾空白后要求 1～20 个 Unicode 码点；非法 UTF-8、控制字符与换行
+          （任何位置）返回 400。昵称允许重复。
+        - 昵称更新与审计事件在同一事务内提交，提交确认成功后才返回 200。
+        - 成功返回与 `GET /api/v1/me` 相同的 `MeResponse`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: 已更新
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/v1/spaces:
     post:
@@ -714,6 +751,17 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Space'
             - type: 'null'
+
+    UpdateMeRequest:
+      type: object
+      required: [display_name]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          description: |
+            去掉首尾空白后 1～20 个 Unicode 码点（按码点计数，不按字节或 UTF-16 码元）；
+            不得包含控制字符或换行。服务端保存去掉首尾空白后的值。
 
     SpaceResponse:
       type: object

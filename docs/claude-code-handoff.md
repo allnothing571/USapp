@@ -1,6 +1,6 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
-Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6). Subsequently: recorded owner-run live user-side email-code Origin/CSRF negative checks and administrator session persistence after rejected logout requests (Section 6).
+Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6). Subsequently: recorded owner-run live user-side email-code Origin/CSRF negative checks and administrator session persistence after rejected logout requests (Section 6). Subsequently: recorded the owner's explicit acceptance of Phase 0 on 2026-10-06 as a local development baseline (Sections 1 and 6) and added the Phase 1 plan `docs/phase1-plan.md` (planning only). Statements elsewhere in this document that Phase 0 was "not accepted" or acceptance was "pending" are historical and describe the state when they were written. Subsequently: recorded the owner's approval of Phase 1 milestone M1 only, the C3/D3 correction, and Claude Code's M1 implementation, which has not been verified (Sections 1 and 6). Subsequently: recorded the owner-run M1 verification results (Section 6) and started the documentation-only M2 wallet/ledger design (`docs/phase1-plan.md` Section 9). Subsequently: recorded the owner's approved M2 design directions (D1, D2 bounds, D18, D19, D21) and revised the M2 design after review; M2 implementation remains unapproved (Section 1). Subsequently (2026-10-07): a second documentation-only M2 design revision (concurrency fixture scope, exact permission outcomes, effective privilege preflight, rollback-evidence limits); no approval status changed.
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
 ## 1. Responsibilities, Authorization, and Current Objective
@@ -16,7 +16,9 @@ Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 - Give the owner one acceptance step at a time and wait for its result before proceeding. Retain essential errors rather than pasting lengthy logs.
 - All content handed to Claude Code must be written in English. Codex continues to communicate with the owner in Chinese.
 
-**Current objective: complete Phase 0 acceptance. The reproduced administrator-list authentication defect has been fixed and passed the owner-run checks recorded in Section 2, and the repository has been pushed to a private GitHub repository (Section 6), but Phase 0 is still not accepted: the open items and verification limits in Section 7 and `docs/phase0-acceptance.md` remain, and the owner has not explicitly accepted Phase 0. Neither a commit nor a push is Phase 0 acceptance. Do not proceed to Phase 1 until the owner explicitly accepts Phase 0.**
+**Current objective: documentation-only design of Phase 1 milestone M2 (wallet and ledger), recorded in `docs/phase1-plan.md` Section 9. On 2026-10-06 the owner approved design directions only: D1 (task completion creates new flowers and sunshine for the recipient; the publisher is not debited), D2 bounds (maximum balance 1,000,000 flowers and 1,000,000,000 sunshine; maximum per-entry amount 999 flowers and 100,000 sunshine; reject, never clamp), D18 (narrowed grants plus triggers that survive re-running the role-initialization script), D19 (no new administrator asset endpoints in M2), and D21 (own balances only). No other product or task rule is approved. M2 implementation, migrations, grant and `init-roles.sql` changes, contract changes, and any database execution are not approved. As of 2026-10-07 the design defers existing-account lock serialization and post-commit visibility tests to M3; M2's planned concurrency test covers account-creation contention only. The owner explicitly accepted Phase 0 on 2026-10-06 as a local development baseline, within the verified scope and limitations in `docs/phase0-acceptance.md`; this is not production-readiness approval, and the open items in Section 7 remain open. Phase 1 milestone M1 (nickname editing) was approved, implemented, and passed the owner-run acceptance checks on 2026-10-06 (Section 6 and `docs/phase1-plan.md` Section 7.9). M2-M10 implementation must not start until the owner approves and assigns that specific milestone.**
+
+Historical note: before 2026-10-06 the objective was to complete Phase 0 acceptance; statements in Sections 2, 6, and 7 that Phase 0 was not yet accepted describe that earlier state.
 
 ## 2. Resolved: Unauthenticated Access to Administrator Lists
 
@@ -265,6 +267,32 @@ Endpoint: `POST /api/v1/auth/email-codes` on the user entry point.
 - The two token checks were sent with browser `fetch` and an empty JSON object body.
 - Limits: targeted negative checks on one endpoint. They are not exhaustive user-side security verification; other user-side state-changing endpoints were not checked live in this way.
 
+### Owner Acceptance of Phase 0 (2026-10-06)
+
+- The owner explicitly accepted Phase 0 on 2026-10-06 as a local development baseline, within the verified scope and limitations recorded in `docs/phase0-acceptance.md`.
+- Limits: this is not production-readiness approval and adds no new runtime evidence. Test-only coverage remains test-only, and the open items in Section 7 remain open.
+- Phase 1 planning was authorized at the same time; implementation awaits owner approval of `docs/phase1-plan.md`.
+
+### Phase 1 M1 Approval and Implementation (2026-10-06; Not Yet Verified)
+
+- The owner approved M1 (nickname editing) on 2026-10-06, including the additive `PATCH /api/v1/me` operation and OpenAPI `info.version` 0.2.0. M2-M10 and their proposed defaults were not approved.
+- The owner corrected Phase 1 plan items C3/D3: the established requirement stands that key task edits after publication of the current period require recipient confirmation; the earlier "no progress means silent editing" default was removed. The detailed workflow remains undecided.
+- Claude Code implemented M1: `ProfileService` (validation, transactional update plus audit), the `PATCH /api/v1/me` route behind `AuthFilter`, the contract addition, the home-page edit control with session/space store updates, and regression tests (unit, `db_gated` block 9, static check, frontend). Details: `docs/phase1-plan.md` Section 7.8.
+- Limits: files modified only. No build, test, database, container, browser, or Git command was run by Claude Code. Verification has not been run, and M1 is not accepted until the owner completes `docs/phase1-plan.md` Section 7.7.
+- Review repair (same day): Codex found a strong ownership cycle in `ProfileService` (context -> `TxScope` -> stored error handler -> context) that retained the request callback after success or NotFound. Claude Code changed the stored error handler to a weak capture, added an exactly-once completion guard, and added `DbGatedTest.cc` block 10 (callback-owned sentinel released within a bounded wait after success, NotFound, and SQL failure). Shared `Db.h`/`Db.cc` and other services were not changed. When written, not built or tested; details in `docs/phase1-plan.md` Section 7.8.
+
+### Phase 1 M1 Owner-Run Verification (2026-10-06)
+
+Recorded separately from the implementation status above. M1 evidence only; Phase 0 evidence is unchanged.
+
+- Backend test-image build exit 0. CTest `unit`, `db_gated`, `static_check` all Passed; `db_gated` not skipped; timings 0.01 s, 0.35 s, 0.00 s, total 0.37 s; exit 0. Runtime image build and `api` container update exit 0; container Healthy.
+- Web unit tests: 4 files, 35 tests passed, exit 0. Web build exit 0; Service Worker generated.
+- Live: nickname updates the current-user card and own member slot and survives refresh; the partner sees it after refresh; the partner's nickname is unchanged; members 2/2.
+- Live rejections, nickname unchanged in each case: whitespace-only, 21 emoji code points, and an extra request field -> 400 `VALIDATION_ERROR`; wrong Origin -> 403 `ORIGIN_NOT_ALLOWED`; correct Origin without a cookie -> 401 `UNAUTHENTICATED`; authenticated with missing or incorrect `X-CSRF-Token` -> 403 `CSRF_TOKEN_INVALID`; pre-authentication session with valid CSRF -> 401 `UNAUTHENTICATED`.
+- Offline: save blocked; no PATCH sent or automatically replayed after reconnecting; nickname unchanged after refresh.
+- Admin UI: user list shows the nickname; audit list shows the update event. The admin UI/API does not expose audit `detail`; an owner SQL query showed audit id 10, `user.display_name_updated`, `detail` `{"field":"display_name"}`, exit 0.
+- Limits: targeted checks of one endpoint and its UI, not exhaustive security verification. Application logs were not separately inspected for nickname values; concurrent updates, HEAD/OPTIONS on `/api/v1/me`, and the transaction-creation and commit-failure paths were not exercised live. Per-assertion counts were not recorded.
+
 ### Scheduler Heartbeat (Owner-Run)
 
 - Runtime configuration: scheduler enabled (`enabled=true`), tick interval 15000 ms.
@@ -291,7 +319,8 @@ Endpoint: `POST /api/v1/auth/email-codes` on the user entry point.
 ## 8. Document Reliability and Reading Order
 
 - `CLAUDE.md` and `.claude/settings.json`: standing instructions and project permission rules for Claude Code. Read `CLAUDE.md` first; the permission rules deny commands the owner runs (Section 1) and reads of real environment files and `backups/`.
-- `docs/phase0-acceptance.md`: concise Phase 0 acceptance matrix derived from the evidence in this document; final owner acceptance is pending.
+- `docs/phase0-acceptance.md`: concise Phase 0 acceptance matrix derived from the evidence in this document; the owner accepted Phase 0 on 2026-10-06 as a local development baseline within its recorded scope and limitations.
+- `docs/phase1-plan.md`: Phase 1 scope, open product decisions, and proposed milestones. M1 is approved, implemented, and owner-verified (Sections 7.8 and 7.9); Section 9 is the documentation-only M2 wallet/ledger design with approved directions D1, D2 bounds, D18, D19, and D21; M2-M10 implementation is not approved.
 - `contracts/openapi.yaml`: interface contract. Do not change it to allow unauthenticated list access.
 - `services/api/src/http/AdminFilter.cc`, `AdminFilter.h`, `controllers/AdminController.cc`, and `services/AdminAuthService.cc`: direct entry points for the administrator authentication fix (resolved; see Section 2); controller/service paths are relative to `services/api/src/`.
 - `services/api/tests/UnitTest.cc`, `DbGatedTest.cc`, `TestSupport.h`, `AdminFilterProbe.h`, and `CMakeLists.txt`: active tests and supporting mechanisms, all under `services/api/tests/`.
@@ -348,16 +377,23 @@ one step at a time. I manually run all builds, tests, database operations,
 container operations, installations, and Git operations. Do not execute
 those actions unless I explicitly authorize them separately.
 
+Also read CLAUDE.md, docs/phase0-acceptance.md, and docs/phase1-plan.md.
+
 The Section 2 administrator authentication fix and the HomeView label fix
 have been implemented and checked; do not redo them. Git state in the
 handoff is a dated observation (private GitHub push at 9e00049); later
-changes stay uncommitted until I report a new commit. Phase 0 is still not
-accepted; see docs/phase0-acceptance.md. Wait for my next assigned
-task, then use the existing implementation authorization for that task
-only. Do not read the real .env, and preserve unrelated changes.
+changes stay uncommitted until I report a new commit. Phase 0 was accepted
+on 2026-10-06 as a local development baseline, not as production-ready;
+its recorded limitations remain open. Phase 1 M1 (nickname editing) is
+implemented and passed my acceptance checks. M2 is in documentation-only
+design (docs/phase1-plan.md Section 9); its approved design directions do
+not authorize implementation. M2-M10 are not approved: do not implement
+any of them until I approve and assign that specific milestone. Then use the existing implementation
+authorization for that milestone only. Do not read the real .env, and
+preserve unrelated changes.
 
-Briefly confirm the root cause before editing. Do not expand into Phase 1
-or redesign the architecture. Deliver actual file differences, regression
+Briefly confirm the root cause or design before editing. Do not expand
+beyond the assigned milestone or redesign the architecture. Deliver actual file differences, regression
 coverage, owner-run acceptance steps, and remaining unverified risks.
 Explicitly state when verification has not been run; do not claim tests passed.
 Write all handoff and implementation reports for Claude Code in English.

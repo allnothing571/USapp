@@ -71,6 +71,9 @@ int main() {
         CHECK_CONTAINS(content, "/api/v1/spaces/current/invites:");
         CHECK_CONTAINS(content, "/api/v1/spaces/current/invites/{inviteId}:");
         CHECK_CONTAINS(content, "/api/v1/invites/{code}/accept:");
+        // 阶段 1 M1：PATCH /api/v1/me（增量操作，请求体只允许 display_name）
+        CHECK_CONTAINS(content, "operationId: updateMe");
+        CHECK_CONTAINS(content, "UpdateMeRequest:");
 
         // 安全响应头与 Cookie 约定
         CHECK_CONTAINS(content, "Cache-Control:");
@@ -137,6 +140,13 @@ int main() {
         const std::string adminCtrl = readFileContent(ctrlDir / "AdminController.cc");
         CHECK_FALSE(adminCtrl.empty());
         CHECK_CONTAINS(adminCtrl, "AdminFilter::classTypeName()");
+
+        // SessionController：PATCH /api/v1/me 必须挂 AuthFilter（Origin + CSRF + 会话）
+        const std::string sessionCtrl = readFileContent(ctrlDir / "SessionController.cc");
+        CHECK_FALSE(sessionCtrl.empty());
+        CHECK_CONTAINS(sessionCtrl,
+                       "ADD_METHOD_TO(SessionController::updateMe, \"/api/v1/me\", drogon::Patch,\n"
+                       "                  AuthFilter::classTypeName());");
     }
 
     return usapptest::finish();

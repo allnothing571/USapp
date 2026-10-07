@@ -15,14 +15,20 @@
 //      - 管理后台列表分页参数绑定（int limit / long long offset）回归测试
 //      - 真实 SpaceService 邀请码生成与接受 (slot / max_uses smallint 参数绑定与消费) 回归测试
 //      - AdminFilter 真实管理员会话校验（无效 / 过期 / 撤销拒绝，有效放行，CSRF 绑定）回归测试
+//   5. 阶段 1 M1：真实 ProfileService 昵称更新（只改调用者、同事务审计、非法输入不修改）
+//   6. 阶段 1 M1：ProfileService 结束后释放请求回调（无 ctx -> TxScope -> onError_ -> ctx 环）
 //
 // 依赖：usapp_core、PostgreSQL 17 测试库。
 // =====================================================================
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <functional>
 #include <future>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -35,6 +41,7 @@
 #include "db/Db.h"
 #include "http/AdminFilter.h"
 #include "services/AdminAuthService.h"
+#include "services/ProfileService.h"
 #include "services/SpaceService.h"
 
 int main() {
@@ -1318,6 +1325,366 @@ int main() {
                 CHECK_ADMIN_REJECTED(af::runAdminFilter(req), 401, "UNAUTHENTICATED",
                                      "撤销后 DELETE sessions");
             }
+
+            const bool cleanedUp = cleanup();
+            CHECK(cleanedUp);
+        } catch (const std::exception &e) {
+            std::cerr << "用例异常: " << e.what() << "\n";
+            const bool cleanedUp = cleanup();
+            CHECK(cleanedUp);
+            CHECK(false);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 9. 阶段 1 M1：真实 ProfileService 昵称更新
+    //
+    // 独立夹具：调用者 A（在一个独立测试空间的 slot 1）与旁观者 B（不在任何空间）。
+    // 验证：只更新 A；B 不变；同事务写入一条审计且 detail 不含昵称值；
+    // 非法输入与不存在的用户都不产生任何修改或审计。
+    // 清理按标识符、按依赖顺序：audit_logs -> couple_members -> couples -> users，
+    // 任一步失败都计为断言失败，不吞异常。
+    // -----------------------------------------------------------------
+    TEST_CASE("Database: ProfileService 只更新调用者昵称，审计同事务写入，非法输入不修改") {
+        std::string userA;
+        std::string userB;
+        std::string spaceId;
+        const std::string ghostUser = "00000000-0000-4000-8000-" + crypto::randomHex(6);
+
+        bool cleanupDone = false;
+        auto cleanup = [&client, &userA, &userB, &spaceId, &ghostUser, &cleanupDone]() -> bool {
+            if (cleanupDone) {
+                return true;
+            }
+            cleanupDone = true;
+            bool ok = true;
+            auto run = [&ok](const char *label, const std::function<void()> &step) {
+                try {
+                    step();
+                } catch (const std::exception &e) {
+                    ok = false;
+                    std::cerr << "[CLEANUP FAIL] " << label << ": " << e.what() << "\n";
+                }
+            };
+            const std::string none = "00000000-0000-0000-0000-000000000000";
+            run("audit_logs", [&]() {
+                client->execSqlSync(
+                    "DELETE FROM audit_logs WHERE action = 'user.display_name_updated' "
+                    "AND target_type = 'user' AND target_id IN ($1, $2, $3)",
+                    userA.empty() ? none : userA, userB.empty() ? none : userB, ghostUser);
+            });
+            if (!spaceId.empty()) {
+                run("couple_members", [&]() {
+                    client->execSqlSync("DELETE FROM couple_members WHERE couple_id = $1::uuid", spaceId);
+                });
+                run("couples", [&]() {
+                    const auto r = client->execSqlSync("DELETE FROM couples WHERE id = $1::uuid", spaceId);
+                    if (r.affectedRows() != 1) {
+                        throw std::runtime_error("删除行数=" + std::to_string(r.affectedRows()) + "（预期 1）");
+                    }
+                });
+            }
+            for (const std::string *id : {&userA, &userB}) {
+                if (id->empty()) {
+                    continue;
+                }
+                run("users", [&]() {
+                    const auto r = client->execSqlSync("DELETE FROM users WHERE id = $1::uuid", *id);
+                    if (r.affectedRows() != 1) {
+                        throw std::runtime_error("id=" + *id + " 删除行数=" +
+                                                 std::to_string(r.affectedRows()) + "（预期 1）");
+                    }
+                });
+            }
+            return ok;
+        };
+
+        // 调用真实服务并有界等待；promise 按值捕获，超时后不再 get()。
+        auto runUpdate = [](const std::string &userId, const std::string &rawName) {
+            auto promise = std::make_shared<std::promise<ProfileService::Status>>();
+            auto future = promise->get_future();
+            ProfileService::instance().updateDisplayName(
+                userId, rawName, [promise](ProfileService::Status status) {
+                    try {
+                        promise->set_value(std::move(status));
+                    } catch (...) {}
+                });
+            if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+                throw std::runtime_error("ProfileService::updateDisplayName 异步调用超时 (5s)");
+            }
+            return future.get();
+        };
+
+        auto displayNameOf = [&client](const std::string &id) {
+            const auto r = client->execSqlSync("SELECT display_name FROM users WHERE id = $1::uuid", id);
+            if (r.size() != 1u) {
+                throw std::runtime_error("未查到测试用户");
+            }
+            return r[0]["display_name"].as<std::string>();
+        };
+
+        auto auditCountFor = [&client](const std::string &id) {
+            const auto r = client->execSqlSync(
+                "SELECT count(*)::integer AS cnt FROM audit_logs "
+                "WHERE action = 'user.display_name_updated' AND target_type = 'user' AND target_id = $1",
+                id);
+            return r[0]["cnt"].as<int>();
+        };
+
+        try {
+            // A. 夹具
+            const std::string emailA = "prof_a_" + crypto::randomHex(4) + "@example.com";
+            auto aRes = client->execSqlSync(
+                "INSERT INTO users (email_canonical, email_display, display_name) "
+                "VALUES ($1, $2, 'ProfA_old') RETURNING id::text AS id",
+                emailA, emailA);
+            if (aRes.size() != 1u) throw std::runtime_error("插入测试用户 A 失败");
+            userA = aRes[0]["id"].as<std::string>();
+
+            const std::string emailB = "prof_b_" + crypto::randomHex(4) + "@example.com";
+            auto bRes = client->execSqlSync(
+                "INSERT INTO users (email_canonical, email_display, display_name) "
+                "VALUES ($1, $2, 'ProfB_keep') RETURNING id::text AS id",
+                emailB, emailB);
+            if (bRes.size() != 1u) throw std::runtime_error("插入测试用户 B 失败");
+            userB = bRes[0]["id"].as<std::string>();
+
+            auto sRes = client->execSqlSync(
+                "INSERT INTO couples (name, created_by_user_id) "
+                "VALUES ('ProfileTestSpace', $1::uuid) RETURNING id::text AS id",
+                userA);
+            if (sRes.size() != 1u) throw std::runtime_error("插入测试空间失败");
+            spaceId = sRes[0]["id"].as<std::string>();
+            client->execSqlSync(
+                "INSERT INTO couple_members (user_id, couple_id, slot) VALUES ($1::uuid, $2::uuid, 1)",
+                userA, spaceId);
+
+            // B. 合法更新：首尾空白被裁掉，中文 + emoji 原样保存。
+            const std::string newName = "\xE6\x96\xB0\xE6\x98\xB5\xE7\xA7\xB0\xF0\x9F\x98\x80";  // 新昵称😀
+            const ProfileService::Status okStatus = runUpdate(userA, "  " + newName + "  ");
+            CHECK(okStatus.ok());
+            if (!okStatus.ok()) {
+                throw std::runtime_error("合法昵称更新失败: " + okStatus.detail);
+            }
+            CHECK_EQ(displayNameOf(userA), newName);
+            CHECK_EQ(displayNameOf(userB), std::string("ProfB_keep"));
+
+            // C. 审计：恰好一条；actor / couple / target 正确；detail 只有 field，且不含昵称值。
+            auto audit = client->execSqlSync(
+                "SELECT actor_type, actor_id::text AS actor_id, couple_id::text AS couple_id, "
+                "       detail->>'field' AS field, "
+                "       (SELECT count(*)::integer FROM jsonb_object_keys(detail)) AS key_count, "
+                "       (position($2 in detail::text) > 0) AS leaks_name "
+                "FROM audit_logs "
+                "WHERE action = 'user.display_name_updated' AND target_type = 'user' AND target_id = $1",
+                userA, newName);
+            CHECK_EQ(audit.size(), 1u);
+            if (audit.size() != 1u) throw std::runtime_error("昵称审计行数不为 1");
+            CHECK_EQ(audit[0]["actor_type"].as<std::string>(), std::string("user"));
+            CHECK_EQ(audit[0]["actor_id"].as<std::string>(), userA);
+            CHECK_FALSE(audit[0]["couple_id"].isNull());
+            if (!audit[0]["couple_id"].isNull()) {
+                CHECK_EQ(audit[0]["couple_id"].as<std::string>(), spaceId);
+            }
+            CHECK_EQ(audit[0]["field"].as<std::string>(), std::string("display_name"));
+            CHECK_EQ(audit[0]["key_count"].as<int>(), 1);
+            CHECK_FALSE(audit[0]["leaks_name"].as<bool>());
+            CHECK_EQ(auditCountFor(userB), 0);
+
+            // D. 非法输入：拒绝且不修改、不写审计。
+            struct BadInput {
+                std::string label;
+                std::string raw;
+                ProfileService::DisplayNameError expected;
+            };
+            const std::vector<BadInput> badInputs = {
+                {"换行", "bad\nname", ProfileService::DisplayNameError::ControlCharacter},
+                {"纯空白", "   ", ProfileService::DisplayNameError::Empty},
+                {"21 个码点", std::string(21, 'x'), ProfileService::DisplayNameError::TooLong},
+                {"非法 UTF-8", "bad\xFF", ProfileService::DisplayNameError::InvalidUtf8},
+            };
+            for (const auto &bad : badInputs) {
+                const ProfileService::Status status = runUpdate(userA, bad.raw);
+                CHECK(status.outcome == ProfileService::Outcome::Validation);
+                CHECK(status.validation == bad.expected);
+                if (status.outcome != ProfileService::Outcome::Validation) {
+                    std::cerr << "非法输入未被拒绝: " << bad.label << "\n";
+                }
+            }
+            CHECK_EQ(displayNameOf(userA), newName);
+            CHECK_EQ(displayNameOf(userB), std::string("ProfB_keep"));
+            CHECK_EQ(auditCountFor(userA), 1);
+
+            // E. 不存在的用户：NotFound，不写审计，也不影响其他用户。
+            const ProfileService::Status ghost = runUpdate(ghostUser, "Ghost");
+            CHECK(ghost.outcome == ProfileService::Outcome::NotFound);
+            CHECK_EQ(auditCountFor(ghostUser), 0);
+            CHECK_EQ(displayNameOf(userA), newName);
+            CHECK_EQ(displayNameOf(userB), std::string("ProfB_keep"));
+
+            // F. 重复昵称允许：B 改成与 A 相同的昵称。
+            const ProfileService::Status dup = runUpdate(userB, newName);
+            CHECK(dup.ok());
+            CHECK_EQ(displayNameOf(userB), newName);
+            CHECK_EQ(auditCountFor(userB), 1);
+
+            // B 不在任何空间：审计 couple_id 为 NULL。
+            auto auditB = client->execSqlSync(
+                "SELECT (couple_id IS NULL) AS no_couple FROM audit_logs "
+                "WHERE action = 'user.display_name_updated' AND target_type = 'user' AND target_id = $1",
+                userB);
+            CHECK_EQ(auditB.size(), 1u);
+            if (auditB.size() == 1u) {
+                CHECK(auditB[0]["no_couple"].as<bool>());
+            }
+
+            const bool cleanedUp = cleanup();
+            CHECK(cleanedUp);
+        } catch (const std::exception &e) {
+            std::cerr << "用例异常: " << e.what() << "\n";
+            const bool cleanedUp = cleanup();
+            CHECK(cleanedUp);
+            CHECK(false);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 10. 阶段 1 M1：ProfileService 生命周期回归
+    //
+    // 回归对象：UpdateCtx 持有 TxScope，TxScope 把 begin() 的错误回调保存为
+    // onError_；若该回调强捕获 ctx，成功提交或 NotFound 回滚之后
+    // ctx -> scope -> onError_ -> ctx 成环，请求回调永不释放。
+    //
+    // 做法：结果回调按值捕获一个哨兵 shared_ptr，调用方随即放弃自己的引用，
+    // 此后哨兵只由服务内部保存的回调拥有。拿到结果后在有界时间内等待哨兵释放
+    // （不要求回调触发的瞬间就析构：Drogon 在回调返回后才释放其持有的闭包）。
+    // 同时断言结果回调恰好被调用一次。
+    // SQL 失败路径（非法 uuid 让 $1::uuid 报错）经由弱捕获的错误回调结束，
+    // 一并覆盖；事务创建失败与提交失败无法在测试库中可靠触发，仅做了代码审查。
+    // -----------------------------------------------------------------
+    TEST_CASE("Database: ProfileService 成功 / NotFound / SQL 失败结束后释放回调持有的哨兵") {
+        std::string userId;
+
+        bool cleanupDone = false;
+        auto cleanup = [&client, &userId, &cleanupDone]() -> bool {
+            if (cleanupDone || userId.empty()) {
+                cleanupDone = true;
+                return true;
+            }
+            cleanupDone = true;
+            bool ok = true;
+            try {
+                client->execSqlSync(
+                    "DELETE FROM audit_logs WHERE action = 'user.display_name_updated' "
+                    "AND target_type = 'user' AND target_id = $1",
+                    userId);
+            } catch (const std::exception &e) {
+                ok = false;
+                std::cerr << "[CLEANUP FAIL] audit_logs: " << e.what() << "\n";
+            }
+            try {
+                const auto r = client->execSqlSync("DELETE FROM users WHERE id = $1::uuid", userId);
+                if (r.affectedRows() != 1) {
+                    ok = false;
+                    std::cerr << "[CLEANUP FAIL] users id=" << userId << " 删除行数=" << r.affectedRows()
+                              << "（预期 1）\n";
+                }
+            } catch (const std::exception &e) {
+                ok = false;
+                std::cerr << "[CLEANUP FAIL] users: " << e.what() << "\n";
+            }
+            return ok;
+        };
+
+        struct LifetimeResult {
+            bool ready = false;
+            ProfileService::Status status;
+            int calls = 0;
+            bool released = false;
+        };
+
+        auto runWithSentinel = [](const std::string &uid, const std::string &name) {
+            auto promise = std::make_shared<std::promise<ProfileService::Status>>();
+            auto future = promise->get_future();
+            auto calls = std::make_shared<std::atomic<int>>(0);
+            auto sentinel = std::make_shared<int>(42);
+            const std::weak_ptr<int> watch = sentinel;
+
+            ProfileService::instance().updateDisplayName(
+                uid, name, [promise, calls, sentinel](ProfileService::Status status) {
+                    calls->fetch_add(1);
+                    try {
+                        promise->set_value(std::move(status));
+                    } catch (...) {}
+                });
+            sentinel.reset();  // 此后哨兵只由服务保存的结果回调拥有
+
+            LifetimeResult out;
+            if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+                return out;  // 超时：不再 get()
+            }
+            out.ready = true;
+            out.status = future.get();
+
+            // 有界等待异步拆除。
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (!watch.expired() && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            out.released = watch.expired();
+            out.calls = calls->load();
+            return out;
+        };
+
+        try {
+            const std::string email = "prof_life_" + crypto::randomHex(4) + "@example.com";
+            auto uRes = client->execSqlSync(
+                "INSERT INTO users (email_canonical, email_display, display_name) "
+                "VALUES ($1, $2, 'Life_old') RETURNING id::text AS id",
+                email, email);
+            if (uRes.size() != 1u) throw std::runtime_error("插入测试用户失败");
+            userId = uRes[0]["id"].as<std::string>();
+
+            // A. 成功提交
+            const LifetimeResult ok = runWithSentinel(userId, "Lifetime1");
+            CHECK(ok.ready);
+            CHECK(ok.status.ok());
+            CHECK_EQ(ok.calls, 1);
+            CHECK(ok.released);
+            if (!ok.released) {
+                std::cerr << "成功路径结束后哨兵未在 3s 内释放：疑似 ctx 所有权环\n";
+            }
+
+            // B. NotFound 回滚（库中不存在的合法 uuid）
+            const std::string ghost = "00000000-0000-4000-8000-" + crypto::randomHex(6);
+            const LifetimeResult notFound = runWithSentinel(ghost, "Ghost");
+            CHECK(notFound.ready);
+            CHECK(notFound.status.outcome == ProfileService::Outcome::NotFound);
+            CHECK_EQ(notFound.calls, 1);
+            CHECK(notFound.released);
+            if (!notFound.released) {
+                std::cerr << "NotFound 路径结束后哨兵未在 3s 内释放：疑似 ctx 所有权环\n";
+            }
+
+            // C. SQL 失败（非法 uuid）：经 TxScope::fail -> 弱捕获的错误回调结束。
+            const LifetimeResult sqlError = runWithSentinel("not-a-uuid", "Broken");
+            CHECK(sqlError.ready);
+            CHECK(sqlError.status.outcome == ProfileService::Outcome::Error);
+            CHECK_EQ(sqlError.calls, 1);
+            CHECK(sqlError.released);
+
+            // 业务结果不受影响：成功路径确实写入，且只有一条审计。
+            auto row = client->execSqlSync("SELECT display_name FROM users WHERE id = $1::uuid", userId);
+            CHECK_EQ(row.size(), 1u);
+            if (row.size() == 1u) {
+                CHECK_EQ(row[0]["display_name"].as<std::string>(), std::string("Lifetime1"));
+            }
+            auto audits = client->execSqlSync(
+                "SELECT count(*)::integer AS cnt FROM audit_logs "
+                "WHERE action = 'user.display_name_updated' AND target_type = 'user' "
+                "  AND target_id IN ($1, $2, 'not-a-uuid')",
+                userId, ghost);
+            CHECK_EQ(audits[0]["cnt"].as<int>(), 1);
 
             const bool cleanedUp = cleanup();
             CHECK(cleanedUp);

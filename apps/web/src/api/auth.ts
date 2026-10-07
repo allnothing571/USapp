@@ -2,9 +2,9 @@
  * 会话与登录端点封装。路径、方法、状态码与 contracts/openapi.yaml 严格一致。
  */
 import { request } from './client'
-import type { EmailCodeAccepted, MeResponse, SessionBootstrap } from './types'
+import type { EmailCodeAccepted, MeResponse, SessionBootstrap, UpdateMeRequest } from './types'
 
-export type { EmailCodeAccepted, MeResponse, SessionBootstrap }
+export type { EmailCodeAccepted, MeResponse, SessionBootstrap, UpdateMeRequest }
 
 /**
  * `GET /api/v1/session` —— 会话引导。
@@ -54,4 +54,14 @@ export function deleteSession(): Promise<void> {
 /** `GET /api/v1/me` —— 当前用户与所属空间。 */
 export function getMe(): Promise<MeResponse> {
   return request<MeResponse>('/api/v1/me', { method: 'GET' })
+}
+
+/**
+ * `PATCH /api/v1/me` —— 修改当前用户自己的昵称（阶段 1 M1）。
+ *
+ * 走共享 client：离线守卫与 CSRF 守卫都在 fetch 之前生效，离线时不会排队重发。
+ * 被修改的用户只由服务端会话决定，请求体只有 `display_name`。
+ */
+export function updateMe(body: UpdateMeRequest): Promise<MeResponse> {
+  return request<MeResponse>('/api/v1/me', { method: 'PATCH', body })
 }

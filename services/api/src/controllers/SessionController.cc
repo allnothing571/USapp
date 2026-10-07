@@ -3,6 +3,11 @@
 //
 // GET /api/v1/session —— 会话引导，同时是 CSRF 令牌的唯一获取入口。
 // GET /api/v1/me      —— 当前用户与所属空间。
+// PATCH /api/v1/me    —— 修改调用者自己的昵称（阶段 1 M1），成功返回与 GET 相同的 MeResponse。
+//
+// PATCH 的身份只来自会话（AuthFilter 写入的 user_id）。请求体只允许一个
+// 字符串字段 display_name；任何其他字段（包括试图指定目标用户的字段）都按
+// 400 拒绝，而不是被静默忽略。Origin 与 CSRF 由 AuthFilter 按状态修改请求校验。
 //
 // 为什么引导接口这么重要：
 //   浏览器内存里的 CSRF 令牌在页面刷新后就没了，而数据库只存令牌的 SHA-256
@@ -30,6 +35,7 @@
 #include "http/AuthFilter.h"
 #include "http/ControllerSupport.h"
 #include "http/HttpUtil.h"
+#include "services/ProfileService.h"
 #include "services/SessionService.h"
 #include "services/SpaceService.h"
 
@@ -64,6 +70,28 @@ void respondWithNewPreauthSession(const drogon::HttpRequestPtr &req, const Callb
         });
 }
 
+// MeResponse：{ user, space | null }。GET /me 与 PATCH /me 成功后共用。
+void respondWithMe(const drogon::HttpRequestPtr &req, const Callback &callback, const std::string &userId) {
+    ctrl::loadUserJson(
+        userId,
+        [callback, userId](Json::Value user) {
+            SpaceService::instance().getCurrentSpace(
+                userId,
+                [callback, user](SpaceService::Status status, SpaceInfo space) {
+                    Json::Value body(Json::objectValue);
+                    body["user"] = user;
+                    body["space"] = status.ok() ? ctrl::spaceJson(space)
+                                                : Json::Value(Json::nullValue);
+                    callback(jsonResponse(body, 200));
+                });
+        },
+        [req, callback](const std::string &error) {
+            LOG_ERROR << "读取当前用户失败：" << error
+                      << " request_id=" << http::requestId(req);
+            callback(ctrl::fail(ErrorCode::InternalError, "服务内部错误", req));
+        });
+}
+
 }  // namespace
 
 class SessionController : public drogon::HttpController<SessionController> {
@@ -72,6 +100,8 @@ class SessionController : public drogon::HttpController<SessionController> {
     ADD_METHOD_TO(SessionController::bootstrap, "/api/v1/session", drogon::Get,
                   AuthFilter::classTypeName());
     ADD_METHOD_TO(SessionController::me, "/api/v1/me", drogon::Get,
+                  AuthFilter::classTypeName());
+    ADD_METHOD_TO(SessionController::updateMe, "/api/v1/me", drogon::Patch,
                   AuthFilter::classTypeName());
     METHOD_LIST_END
 
@@ -146,23 +176,50 @@ class SessionController : public drogon::HttpController<SessionController> {
         if (!ctrl::requireUser(req, callback, userId)) {
             return;
         }
-        ctrl::loadUserJson(
-            userId,
-            [req, callback, userId](Json::Value user) {
-                SpaceService::instance().getCurrentSpace(
-                    userId,
-                    [callback, user](SpaceService::Status status, SpaceInfo space) {
-                        Json::Value body(Json::objectValue);
-                        body["user"] = user;
-                        body["space"] = status.ok() ? ctrl::spaceJson(space)
-                                                    : Json::Value(Json::nullValue);
-                        callback(jsonResponse(body, 200));
-                    });
-            },
-            [req, callback](const std::string &error) {
-                LOG_ERROR << "读取当前用户失败：" << error
-                          << " request_id=" << http::requestId(req);
-                callback(ctrl::fail(ErrorCode::InternalError, "服务内部错误", req));
+        respondWithMe(req, callback, userId);
+    }
+
+    // 只改会话用户自己的昵称。昵称值不进日志、不进审计。
+    void updateMe(const drogon::HttpRequestPtr &req,
+                  std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        std::string userId;
+        if (!ctrl::requireUser(req, callback, userId)) {
+            return;
+        }
+        Json::Value body;
+        if (!ctrl::parseBody(req, callback, body)) {
+            return;
+        }
+        if (body.size() != 1u || !body.isMember("display_name") || !body["display_name"].isString()) {
+            callback(ctrl::fail(ErrorCode::ValidationError,
+                                "请求体只能包含一个字符串字段 display_name", req));
+            return;
+        }
+        const std::string rawName = body["display_name"].asString();
+
+        ProfileService::instance().updateDisplayName(
+            userId, rawName, [req, callback, userId](ProfileService::Status status) {
+                switch (status.outcome) {
+                    case ProfileService::Outcome::Ok:
+                        // 已确认提交，再读回最新的用户与空间。
+                        respondWithMe(req, callback, userId);
+                        return;
+                    case ProfileService::Outcome::Validation:
+                        callback(ctrl::fail(ErrorCode::ValidationError,
+                                            ProfileService::displayNameErrorMessage(status.validation),
+                                            req));
+                        return;
+                    case ProfileService::Outcome::NotFound:
+                        LOG_WARN << "修改昵称时会话用户不存在 request_id=" << http::requestId(req);
+                        callback(ctrl::fail(ErrorCode::Unauthenticated, "请先登录", req));
+                        return;
+                    case ProfileService::Outcome::Error:
+                    default:
+                        LOG_ERROR << "修改昵称失败：" << status.detail
+                                  << " request_id=" << http::requestId(req);
+                        callback(ctrl::fail(ErrorCode::InternalError, "服务内部错误", req));
+                        return;
+                }
             });
     }
 };

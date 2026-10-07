@@ -3,7 +3,7 @@
 Evidence date: 2026-10-06, Asia/Shanghai.
 Source of record: [docs/claude-code-handoff.md](claude-code-handoff.md). This matrix summarizes it and adds no new evidence.
 
-**Final owner acceptance of Phase 0: PENDING.** Phase 1 must not start until the owner explicitly accepts Phase 0.
+**Final owner acceptance of Phase 0: ACCEPTED on 2026-10-06** as a local development baseline, within the verified scope and the limitations recorded in this matrix. This is not production-readiness approval. Phase 1 planning is authorized (see [docs/phase1-plan.md](phase1-plan.md)); Phase 1 implementation awaits the owner's approval of that plan.
 
 This matrix does not claim production readiness or exhaustive security verification. Not every contract or end-to-end check has been executed. Git hashes and repository status are dated observations, not permanent current state. This document is not updated to record its own commits.
 
@@ -150,5 +150,8 @@ This matrix does not claim production readiness or exhaustive security verificat
 
 ## Owner acceptance
 
-- Status: **pending**.
-- Decision and date: not recorded.
+- Status: **accepted**.
+- Decision and date: the owner explicitly accepted Phase 0 on 2026-10-06.
+- Accepted scope: Phase 0 as a local development baseline, limited to the evidence marked Verified or Test-only in this matrix and subject to every limitation and open item listed above. Those limitations remain open; acceptance does not convert Test-only coverage or unverified items into verified results.
+- Not included: production readiness, exhaustive security verification, real email or push delivery, off-site or encrypted backup, and any Phase 1+ feature.
+- Next step: Phase 1 planning is authorized ([docs/phase1-plan.md](phase1-plan.md)). Phase 1 implementation starts only after the owner approves that plan.
