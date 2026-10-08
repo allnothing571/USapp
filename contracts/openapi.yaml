@@ -2,13 +2,14 @@ openapi: 3.1.0
 
 info:
   title: USapp API（阶段 0 冻结契约 + 阶段 1 增量）
-  version: 0.2.0
+  version: 0.3.0
   description: |
     阶段 0 只覆盖：登录与会话、注册白名单、情侣空间创建与邀请加入、
     当前用户/空间查询、健康检查、管理后台骨架。
 
     0.2.0 起为阶段 1 的增量版本：阶段 0 的全部操作、字段与行为保持冻结不变；
-    阶段 1 只新增操作。当前新增：`PATCH /api/v1/me`（修改自己的昵称，M1）。
+    阶段 1 只新增操作。当前新增：`PATCH /api/v1/me`（修改自己的昵称，M1），
+    `GET /api/v1/wallet`（只读自己的资产余额，M2-B，0.3.0 起）。
 
     契约级硬约束（所有实现必须遵守，后续阶段不得放宽）：
     - Web 与 API 同源部署，全部接口只允许来自配置的 PUBLIC_ORIGIN。
@@ -36,6 +37,8 @@ tags:
     description: 邮箱验证码登录
   - name: space
     description: 情侣空间与邀请
+  - name: wallet
+    description: 当前用户自己的资产（只读）
   - name: admin
     description: 管理后台（仅回环 / 受信代理可达）
 
@@ -205,6 +208,40 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Forbidden'
+
+  /api/v1/wallet:
+    get:
+      tags: [wallet]
+      operationId: getWallet
+      summary: 查询当前用户自己的资产余额（阶段 1 M2-B）
+      description: |
+        - 需要正式会话；匿名或预认证会话返回 401。不要求 CSRF 令牌。
+        - 用户仅取自服务端会话，不接受目标用户参数；尚未加入空间返回 404 SPACE_NOT_FOUND。
+        - 同一查询快照读取两种资产的最新流水余额；没有流水时返回 0。
+        - 不创建账户、不写入流水或审计，禁止缓存。
+      responses:
+        '200':
+          description: 自己的当前余额
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: 资产查询暂时失败
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /api/v1/spaces:
     post:
@@ -762,6 +799,29 @@ components:
           description: |
             去掉首尾空白后 1～20 个 Unicode 码点（按码点计数，不按字节或 UTF-16 码元）；
             不得包含控制字符或换行。服务端保存去掉首尾空白后的值。
+
+    Wallet:
+      type: object
+      additionalProperties: false
+      required: [flower, sunshine]
+      properties:
+        flower:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 1000000
+        sunshine:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 1000000000
+
+    WalletResponse:
+      type: object
+      additionalProperties: false
+      required: [wallet]
+      properties:
+        wallet: { $ref: '#/components/schemas/Wallet' }
 
     SpaceResponse:
       type: object

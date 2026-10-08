@@ -47,3 +47,28 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO usapp_api;
 -- 6. 推送账户权限收紧（阶段 0 绝不授予用户、空间、管理员及审计表权限）
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM usapp_push;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM usapp_push;
+
+-- 7. 钱包表权限收窄（阶段 1 M2-A；必须位于第 5 节 ALL TABLES 授权之后；可重复执行）
+--    第 5 节会把 UPDATE / DELETE 授予 usapp_api 的所有表，这里对钱包表恢复
+--    0006_wallet_ledger 设定的有效权限矩阵：
+--      usapp_api : 三张表 SELECT, INSERT；仅 wallet_accounts.lock_token 有列级 UPDATE（用于行锁）
+--      usapp_push / PUBLIC : 无任何权限
+--    表级 REVOKE 会同时收回列级权限。钱包表尚不存在（0006 未应用）时逐表跳过。
+DO $wallet_grants$
+DECLARE
+    wallet_table text;
+BEGIN
+    FOREACH wallet_table IN ARRAY ARRAY['wallet_accounts', 'wallet_operations', 'wallet_ledger_entries']
+    LOOP
+        IF to_regclass('public.' || wallet_table) IS NOT NULL THEN
+            EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC', wallet_table);
+            EXECUTE format('REVOKE ALL ON public.%I FROM usapp_api', wallet_table);
+            EXECUTE format('REVOKE ALL ON public.%I FROM usapp_push', wallet_table);
+            EXECUTE format('GRANT SELECT, INSERT ON public.%I TO usapp_api', wallet_table);
+        END IF;
+    END LOOP;
+    IF to_regclass('public.wallet_accounts') IS NOT NULL THEN
+        EXECUTE 'GRANT UPDATE (lock_token) ON public.wallet_accounts TO usapp_api';
+    END IF;
+END
+$wallet_grants$;

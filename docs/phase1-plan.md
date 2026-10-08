@@ -1,10 +1,12 @@
 # USapp Phase 1 Plan: Couple Core Loop
 
-Status (updated 2026-10-06, Asia/Shanghai):
+Status (updated 2026-10-09, Asia/Shanghai):
 
 - **M1 (nickname): approved, implemented, and owner-run acceptance checks completed successfully on 2026-10-06.** Implementation status is in Section 7.8; the owner's verification evidence and its limits are in Section 7.9. The approval covered M1 only, including the additive `PATCH /api/v1/me` operation and OpenAPI `info.version` 0.2.0.
-- **M2 (wallet/ledger): design in progress (Section 9), documentation only.** The owner approved design directions D1, D2 (balance and per-entry bounds only), D18, D19, and D21 on 2026-10-06. M2 implementation, migrations, grant changes, and database execution are **not approved**.
-- **M3-M10: not approved.** Their proposed defaults in Section 4 are not approved either. Contracts, tables, and files proposed for M2-M10 are design proposals and do not exist in the repository.
+- **M2 (wallet/ledger):** design in Section 9, with owner-approved directions D1, D2 (balance and per-entry bounds only), D18, D19, and D21 (2026-10-06). M2 is split:
+  - **M2-A (database foundation): approved and implemented 2026-10-07; owner-run verification on `usapp_test` passed 2026-10-07 (Section 9.14).** The owner also applied frozen 0006 to the main database during M2-B rollout (Section 9.19). Claude Code itself built, tested, or executed none of it.
+  - **M2-B (read endpoint, API startup privilege check, home display): owner-authorized for direct Codex implementation on 2026-10-07; implemented and passed owner-run verification (Section 9.19, updated 2026-10-09).** A separate formal M2 acceptance decision has not been recorded; owner Git review/commit/push remains pending.
+- **M3-M10: not approved.** Their proposed defaults in Section 4 are not approved either. M2-A schema/policy/tests and M2-B read/startup/frontend files exist; M3-M10 remain proposals.
 - Claude Code has not built, tested, or verified anything in this document; all verification results are owner-run and recorded as such.
 
 Prerequisite: Phase 0 was accepted by the owner on 2026-10-06 as a local development baseline, within the scope and limitations in [docs/phase0-acceptance.md](phase0-acceptance.md). That acceptance is not production-readiness approval.
@@ -281,10 +283,10 @@ Phase 0 acceptance does not close these. They are tracked, not re-verified, by t
 
 ## 9. M2 Wallet and Ledger: Detailed Design Proposal
 
-Status (revised 2026-10-06):
+Historical design status (revised 2026-10-06; later approvals and verification are in Sections 9.13-9.19):
 
 - **Approved design directions (owner, 2026-10-06):** D1, D2 (balance and per-entry bounds only), D18, D19, D21; see Section 9.9.
-- **Not approved:** M2 implementation, migrations, grant changes, `init-roles.sql` changes, contract changes, and any database execution. Nothing in this section exists in the repository.
+- **At that design revision:** M2 implementation, migrations, grant changes, `init-roles.sql` changes, contract changes, and database execution were not approved. The owner subsequently assigned M2-A and M2-B; their implementation and verification supersede this historical status.
 - This revision corrects four points raised in review: the ledger-chain invariant (Section 9.4), the rollback-only test strategy (Section 9.10), role assumptions (Section 9.6), and system-actor idempotency (Section 9.7).
 - Second review revision (2026-10-07): the M2 concurrency fixture is account-creation contention only, with existing-account locking and post-commit visibility deferred to M3 (Sections 9.10, 9.11); exact permission outcomes (Section 9.11); an effective table and column privilege matrix for API and test preflights (Section 9.6); and the limits of rollback evidence with bounded teardown checks (Section 9.10).
 
@@ -486,7 +488,7 @@ Approved design directions (owner, 2026-10-06):
 
 Alternatives recorded for context (not chosen): transferred rewards with escrow (D1); no caps beyond type range (D2); triggers only, or a `SECURITY DEFINER` posting function as the only write path (D18); read-only admin wallet views (D19); showing partner balances (D21).
 
-These directions do not approve implementation. Writing the migration, changing `init-roles.sql`, changing the contract, writing code, and running anything against a database still require the owner to approve and assign M2.
+At the design stage, these directions alone did not approve implementation. The owner subsequently assigned M2-A and M2-B (Sections 9.13-9.19); any further migration, grant, contract or code change requires its own assigned scope. M3-M10 remain unapproved.
 
 ### 9.10 Test strategy under immutability
 
@@ -573,3 +575,355 @@ Owner-run acceptance (after M2 is approved and implemented):
 12. API: `GET /api/v1/wallet` without a cookie and with a pre-authentication session -> 401; authenticated -> 200 with 0/0 and `Cache-Control: no-store`; write methods are not routed.
 13. Database: the three wallet tables in the main database contain no rows; no wallet audit events exist.
 14. Recommended before M3: include the new tables in a backup/restore check.
+
+### 9.13 M2-A implementation status (2026-10-07): implemented, verification pending
+
+Approved by the owner on 2026-10-07: database wallet/ledger foundation, reusable privilege checking, tests, and documentation. Excluded and not implemented: `WalletService`, `WalletController`, contract/version changes, frontend changes, API startup integration, task posting, redemption, M2-B, M3+. **Nothing below has been built, tested, or executed against a database by Claude Code.** M2-A is not accepted until the owner completes the steps at the end of this section.
+
+Files:
+
+- New `database/migrations/0006_wallet_ledger.sql`: role preflight; `couple_members (couple_id, user_id)` unique constraint; the three tables of Section 9.3 (accounts hold no balance or sequence); approved D2 bounds as CHECKs; membership/couple composite FKs; source and partial idempotency unique indexes; triggers; narrowed grants. Writes no wallet rows; no existing migration edited.
+- `database/init-roles.sql`: new section 7, after the ALL TABLES grant, re-applies the wallet privilege matrix for each wallet table that exists (re-runnable; no-op before 0006).
+- New `database/tests/wallet_ledger_test.sql`: owner-run psql script (Section 9.10 item 2).
+- New `services/api/src/db/WalletPrivilegePolicy.h/.cc`: the Section 9.6 effective privilege matrix (identity, superuser, ownership, role memberships, table and any-column privileges, catalog-enumerated column UPDATE, `usapp_push`, `public`). Expected values live only in C++; output is names and booleans only. **Not wired into API startup** (M2-B).
+- Tests: new `services/api/tests/WalletLedgerProbe.h` and `WalletLedgerDbTests.h`, called as block 11 of `DbGatedTest.cc`; the `db_gated` migration gate now also requires `0006_wallet_ledger`; `UnitTest.cc` policy case; `StaticCheckTest.cc` 0006/init-roles case.
+- `database/README.md`: 0006 row, wallet notes, psql script instructions.
+
+Implementation details that refine Section 9 (review these):
+
+- Append-only triggers are **statement-level** `BEFORE UPDATE OR DELETE OR TRUNCATE` on all three tables, so even 0-row UPDATE/DELETE statements are rejected. `SELECT ... FOR UPDATE` and `INSERT ... ON CONFLICT DO NOTHING` do not fire them.
+- Triggers raise custom SQLSTATEs: `UW001` append-only, `UW002` account missing, `UW003` sequence, `UW004` balance arithmetic, `UW005` multi-row insert, `UW006` operation without entries at commit or `SET CONSTRAINTS ... IMMEDIATE`.
+- The chain trigger skips its checks when a key column is NULL so that the NOT NULL constraint reports 23502 instead of a chain error.
+- Drogon v1.9.11 (checked in source): `PgConnection` reports query failures as `Failure(PQerrorMessage(...))` with **no SQLSTATE**, and the server message text may be localized. The `db_gated` wallet cases therefore wrap each expected-failure statement in a `DO` block that catches the error and re-raises `USAPP_TEST_SQLSTATE=<code>;CONSTRAINT=<name>;`. The DO block still ends in an error, so Drogon still rolls back the whole transaction; this only exposes the SQLSTATE and is not savepoint recovery. Statements inside the DO block contain only literals (test-generated, shape-checked UUIDs and integers).
+- Each case uses its own transaction acquired with `newTransactionAsync` under a bounded wait (late arrivals are rolled back). Every exec, commit, and teardown wait is bounded. A separate single-connection `DbClient` (outside the working pool) is the observer; no transaction is observed on its own connection.
+- Teardown evidence: the case records `pg_backend_pid()`; the observer polls `pg_stat_activity` / `pg_locks` until the backend is idle with no xid and no relation/tuple/transactionid locks, and checks that no fixture or wallet row is visible as committed. This shows that the server-side transaction ended and released its locks; it does not show Drogon callback timing or pool return.
+- The only real commit is the "operation without entries" case; the commit must fail. If it ever succeeded, the case reports the committed rows that would remain in `usapp_test`.
+- Sunshine balance cap (10,000 entries) is tested only in the psql script, to stay within the 30 s `db_gated` CTest timeout; the flower balance cap (1,002 entries in one DO statement, each INSERT still a single-row statement) is tested in both.
+- Maintenance-role TRUNCATE in the psql script truncates all three tables together (and the ledger alone), because truncating accounts or operations alone fails first on foreign-key references and would not prove the trigger.
+- Concurrency: only account-creation contention with committed non-wallet fixtures and both wallet transactions rolled back. Existing-account lock serialization and post-commit snapshot visibility were **not** tested; they remain M3 requirements.
+- Review repair (2026-10-07, before any owner-run database check): target-database guards.
+  - `DbGatedTest.cc` queries `current_database()` right after the connectivity probe, before the migration gate, every fixture write, and every test case (existing and new). It requires exactly `usapp_test` and exits with failure (1, not Skipped) on a mismatch or query failure. It prints only a sanitized database name and the reason, never the connection string. It does not rely on DSN substrings; the older `prod` substring check remains as an extra.
+  - `wallet_ledger_test.sql` raises an exception if `current_database()` is not `usapp_test`, as the first statement inside its DO block, before any fixture DML. `ON_ERROR_STOP` and the BEGIN ... ROLLBACK structure are unchanged.
+  - Coverage: the decision is a pure function in new `services/api/tests/TestDatabaseGuard.h` with a `unit` case (exact match only; near-misses such as `usapp`, `usapp_test2`, `USAPP_TEST`, padded or embedded-NUL names rejected; safe output). A `static_check` case asserts that both guards precede every migration query, test case, and write, that the guard block returns 1 without skip, and that the script never commits and ends with `ROLLBACK;`. The rejection path was not exercised against any real database.
+  - The DO-based SQLSTATE extraction, whole-transaction rollback, and the independent observer connection are unchanged. Not built or tested.
+
+Unverified assumptions (all to be confirmed by the owner-run steps):
+
+- PostgreSQL 17 accepts every statement in 0006 (custom SQLSTATEs, transition-table statement trigger, combined statement-level `UPDATE OR DELETE OR TRUNCATE` trigger, `has_*_privilege` with `'public'` and `MAINTAIN`).
+- `apply.ps1`'s statement scanner accepts the new migration (dollar-quoted bodies with distinct tags, no bare `$`).
+- `SET CONSTRAINTS ALL IMMEDIATE` inside a PL/pgSQL `DO` block fires deferred triggers queued earlier in the same transaction.
+- `INSERT ... ON CONFLICT DO NOTHING` waits on another transaction's uncommitted insert of the same key, and the waiting backend shows `wait_event_type = 'Lock'`.
+- A non-superuser can read `state`, `backend_xid`, and `wait_event_type` in `pg_stat_activity` for sessions of its own role, and `pg_locks`.
+- TRUNCATE privilege and FK checks run before BEFORE TRUNCATE triggers (affects which code the psql script expects).
+- `db_gated` really connects as `usapp_api` (the policy case fails otherwise; the actual `USAPP_TEST_DSN` role is not recorded).
+- The new code compiles (`WalletLedgerProbe.h`, `WalletLedgerDbTests.h`, `WalletPrivilegePolicy.cc`) and the `db_gated` run stays within its 30 s timeout.
+
+Owner-run acceptance steps (one at a time, guided by Codex):
+
+1. Codex reviews the migration, the `init-roles.sql` diff, the psql script, the policy module, and the tests.
+2. Back up the main database with the existing procedure (before any later apply to `usapp`).
+3. As the maintenance role: `usapp_api` and `usapp_push` exist and are not superusers.
+4. `apply.ps1 -DryRun` against `usapp_test`: only `0006_wallet_ledger` is pending, and the transaction-boundary precheck passes.
+5. Apply to `usapp_test` with `-InitRoles`.
+6. As the maintenance role on `usapp_test`, check privileges for `usapp_api`: `has_table_privilege` is true only for SELECT and INSERT on each wallet table; `has_column_privilege('usapp_api', 'wallet_accounts', 'lock_token', 'UPDATE')` is true; UPDATE on every other wallet column, and every privilege for `usapp_push` and `public`, is false.
+7. Run `apply.ps1 -InitRoles` again (no pending migrations) and repeat step 6: unchanged.
+8. Run `database/tests/wallet_ledger_test.sql` on `usapp_test` twice, as `usapp_api` and as the maintenance role; each prints `ALL WALLET LEDGER ASSERTIONS PASSED` with the expected mode and exits 0.
+9. Build the backend test image and run all CTest targets: `unit`, `db_gated` (not skipped), and `static_check` pass; the `db_gated` log shows the target-database guard passing for `usapp_test` and the privilege summary with `role=usapp_api ok=true`.
+10. On `usapp_test`, the three wallet tables contain zero rows.
+11. Only when the owner decides (not required until M2-B): apply 0006 to the main database with `-InitRoles` after the backup, repeat step 6 there, and confirm the wallet tables are empty and the existing app still works (login, home, nickname).
+
+### 9.14 M2-A owner-run verification results (2026-10-07)
+
+Run by the owner under Codex's guidance against `usapp_test`. These are M2-A results only; Phase 0 and M1 evidence are recorded separately.
+
+Migration and roles:
+
+- `apply.ps1 -DryRun`: the six existing migration checksums matched; only `0006_wallet_ledger` was pending; exit code 0.
+- `usapp_api` and `usapp_push` existed and were not superusers.
+- 0006 applied to `usapp_test` and `init-roles.sql` completed; exit code 0. Applied checksum of `0006_wallet_ledger`: `2633e17ea6ff6e664832df84023d1fab8aa9513b4cfe48786c4ca093bc7d543d`. **This migration is applied and must never be edited.**
+- Repeated `init-roles` run: exit code 0.
+
+Automated tests:
+
+- Backend test image build: exit code 0.
+- CTest `unit`, `db_gated`, `static_check` all Passed; `db_gated` ran and was not skipped; timings 0.01 s, 0.88 s, 0.00 s, total 0.90 s; exit code 0. Per-assertion counts were not recorded.
+- A later database-only CTest run (after the repeated `init-roles`): one test, no failures, total 1.07 s, exit code 0.
+- The full CTest run came before the script-only repairs below; those repairs changed only `database/tests/wallet_ledger_test.sql`, which CTest does not execute.
+
+psql script `database/tests/wallet_ledger_test.sql`, with failed runs and retries:
+
+- Application role (`usapp_api`), first run: failed with exit code 3, "syntax error at end of input" at the internal `THEN` of an unparenthesized `CASE` in an `IF` condition.
+- Codex, under the owner's authorization, repaired the standalone script directly: the seven `IF SQLSTATE <> CASE ... END THEN` conditions in E2-E8 were parenthesized. In the maintenance branch, E9 now runs `SET CONSTRAINTS ALL IMMEDIATE` before testing `TRUNCATE`.
+- The first maintenance-role run failed with exit code 3: E9 expected UW001 but received 55006 (pending trigger events prevented TRUNCATE before the append-only trigger could run). After the E9 repair, the retry passed as recorded below.
+- Application-role retry after the repair: exit code 0. Its success banner and group count were not supplied and are not recorded.
+- Maintenance-role retry after the repair: 28 assertion groups passed, ended with `ROLLBACK`, exit code 0.
+
+Final state of `usapp_test` (owner query, exit code 0): `wallet_accounts` 0, `wallet_operations` 0, `wallet_ledger_entries` 0, wallet test users 0.
+
+Limits of this evidence:
+
+- 0006 has not been applied to the main database.
+- No API startup integration, wallet endpoint, or frontend exists yet; no service posting path exists.
+- Existing-account lock serialization and post-commit snapshot visibility were not tested (M3 requirements).
+- The privilege matrix was verified on `usapp_test` only.
+- These are targeted checks, not exhaustive security verification.
+
+### 9.15 M2-B scope and rollout: wallet read endpoint, startup privilege check, home display
+
+Status: originally a design proposal, written 2026-10-07. The owner subsequently authorized direct Codex implementation of M2-B; implementation is recorded in Section 9.16 and owner-run verification in Section 9.19. The scope follows D18, D19, D21 and the frozen M2-A schema. M2-B added no migration, permission, dependency, or deployment configuration change; the owner applied the existing frozen M2-A migration during rollout.
+
+Scope: one read endpoint, the shared privilege policy enforced at API startup, and own-balance display on the home page. No wallet writes, posting, redemption, admin endpoints, or partner balances.
+
+API (`GET /api/v1/wallet`):
+
+- Behind `AuthFilter`; route registered for GET only. The caller is taken only from the server session (`ctrl::requireUser`); there is no query or body input.
+- Pre-authentication or anonymous session: 401 `UNAUTHENTICATED`. Authenticated user without a space: 404 `SPACE_NOT_FOUND` (same as Phase 0 space reads). Success: 200 `{ "wallet": { "flower": <int>, "sunshine": <int> } }`. Every response is `Cache-Control: no-store` through the existing response helpers.
+- One SQL statement reads membership and both balances, so all values come from one snapshot:
+
+  ```sql
+  SELECT m.couple_id::text AS couple_id,
+         COALESCE((SELECT e.balance_after FROM wallet_ledger_entries e
+                    WHERE e.user_id = m.user_id AND e.asset_type = 'flower'
+                    ORDER BY e.seq DESC LIMIT 1), 0)::bigint AS flower,
+         COALESCE((SELECT e.balance_after FROM wallet_ledger_entries e
+                    WHERE e.user_id = m.user_id AND e.asset_type = 'sunshine'
+                    ORDER BY e.seq DESC LIMIT 1), 0)::bigint AS sunshine
+    FROM couple_members m
+   WHERE m.user_id = $1::uuid
+  ```
+
+  No row means no space (404). Absent ledger entries mean 0. The statement takes no locks and creates no rows. Values are read as `int64_t` and written as JSON integers (the D2 caps keep them below 2^53).
+- No wallet writes and no audit rows on reads.
+- Contract: `contracts/openapi.yaml` `info.version` 0.3.0 (additive). New operation `getWallet` and schema `WalletResponse` (`flower`, `sunshine`: integer, minimum 0, maximum per D2 caps). Responses 200 / 401 / 404. No existing operation or schema changes.
+
+Startup privilege check (`services/api/src/main.cc`):
+
+- New step between "2) 数据库" (`waitForDatabase`) and "3) Drogon 运行参数". It runs `WalletPrivilegePolicy::check` on the pool client with a bounded wait (for example 10 s). It completes before filters, listeners, the scheduler (`startScheduler`), and `drogon::app().run()`, so the process neither serves requests nor starts scheduler jobs with the wrong identity or privileges.
+- On a mismatch, missing wallet tables, query error, or timeout: log `report.summary()` (names and booleans only), log a short reason, and exit with status 1. Never log the connection string. On success: log one line with `role=usapp_api ok=true`.
+- A small pure function decides start/refuse from a report so it can be unit-tested. The policy module itself is unchanged.
+- Consequence: an M2-B runtime refuses to start on a database without 0006. Hence the rollout order below.
+
+Frontend (`apps/web`):
+
+- `src/api/types.ts`: `Wallet`, `WalletResponse`. `src/api/wallet.ts`: `getWallet()` via the shared client (`GET`, so no CSRF header; offline GET is still attempted and fails normally; nothing is cached because the Service Worker never caches `/api/`).
+- New `src/stores/wallet.ts` (memory only): `balances: { flower, sunshine } | null`, `status: 'idle' | 'loading' | 'ready' | 'error'`, `errorCode`, and a private `generation` counter.
+  - `load()` increments and captures the generation before the request and discards successes and failures if the generation changed when they return. Thus newer loads also invalidate older loads.
+  - `reset()` clears balances and error and increments the generation.
+  - On error, balances are cleared, so stale numbers are never shown next to an error.
+- `src/stores/session.ts`: `resetBusinessState()` also calls `useWalletStore().reset()`. `applyBootstrap()` resets the wallet store whenever the snapshot is anonymous or the user id changes. The bootstrap error handler uses the common reset path; refreshMe and nickname snapshots also reset on user-id change. A wallet response started before such a reset is discarded.
+- `src/views/HomeView.vue`: a "我的资产" card. It shows "加载中…" while loading; the two own balances (小红花, 阳光值) and a refresh button when ready; a Chinese error with a retry button on error, without numbers. A watcher loads for the authenticated user on mount and user-id changes; refresh/retry reissues the read. Partner balances are never requested or shown.
+
+Expected files: `contracts/openapi.yaml`; new `services/api/src/services/WalletService.h/.cc` (read only; exposes its SQL text as a constant for tests); new `services/api/src/db/WalletStartupCheck.h/.cc` (bounded startup wrapper and pure decision); new `services/api/src/controllers/WalletController.cc`; `services/api/CMakeLists.txt` (add the controller to the explicit `add_executable(usapp_api ...)` list); `services/api/src/main.cc` (startup check); `services/api/tests/UnitTest.cc`, `DbGatedTest.cc` and new `WalletReadDbTests.h`, `StaticCheckTest.cc`; `apps/web/src/api/types.ts`, new `apps/web/src/api/wallet.ts`, new `apps/web/src/stores/wallet.ts`, `apps/web/src/stores/session.ts`, `apps/web/src/views/HomeView.vue`, new or extended specs under `apps/web/tests/unit/`; docs. No migration, `init-roles.sql`, grant, dependency, or deployment change.
+
+Tests:
+
+- `unit`: the startup decision function (ok report -> start; any mismatch, missing, unexpected, or error -> refuse); wallet JSON shaping (int64 values, both keys present).
+- `db_gated` (guarded to `usapp_test`, as `usapp_api`):
+  - Real `WalletService` read for a member with no entries -> 0/0, and for a user without a space -> `SpaceNotFound`. These use committed non-wallet fixtures, deleted by id afterwards.
+  - The balance SQL constant executed inside a rollback-only transaction with in-transaction fixtures and ledger entries. It checks: the latest entry wins over earlier ones; both assets are returned independently; a partner's entries are not returned for the caller; a user without membership returns no row. These cases use the M2-A independent-transaction pattern and leave no committed wallet rows (checked by the observer).
+  - The existing privilege-matrix case remains.
+- `static_check`: the contract contains `getWallet`, `WalletResponse`, and version 0.3.0. `WalletController.cc` registers `/api/v1/wallet` with `drogon::Get` and `AuthFilter` only. `CMakeLists.txt` lists the controller. In `main.cc`, the privilege check comes before `startScheduler()` and `drogon::app().run()`.
+- Web unit tests:
+  - `getWallet` issues a GET through the shared client without a CSRF header.
+  - The store sets `ready` with balances on success; on error it clears balances and sets the error.
+  - `reset()` clears state. A response that resolves after `reset()` (deferred promise) does not restore balances. A response for user A that resolves after switching to user B is discarded.
+  - Session logout resets the wallet store.
+
+Rollout order (owner-run, one step at a time):
+
+1. Codex reviews the M2-B diff.
+2. On the test side first: build the backend test image and run all CTest targets against `usapp_test` (0006 already applied there); run web unit tests. Build the web only when ready to deploy: apps/web/dist is bind-mounted into Caddy, so a web build changes the served files. A newer wallet UI against the older API would show a load error.
+3. Take a **fresh** main-database backup (new, after M2-A verification) with the existing procedure.
+4. `apply.ps1 -DryRun` against the main database: the six existing checksums match and only `0006_wallet_ledger` is pending.
+5. The owner applies 0006 to the main database with `-InitRoles`. As the maintenance role, check the privilege matrix for `usapp_api` there and confirm the three wallet tables are empty. The current (pre-M2-B) runtime does not use the wallet tables, so login, home, and nickname must still work.
+6. Before building the new runtime, record the running api image ID and give it a unique local rollback tag; verify that the tag resolves to the recorded ID. Preserve that tag. Only then build the runtime image and update the `api` container. The startup log shows the privilege check passing with `role=usapp_api ok=true`; the container is Healthy. If startup is refused, retag the preserved old image to the Compose api image name and recreate api (0006 does not affect it) and report the logged summary.
+7. After backend startup passes, run the web build (including type checks) and refresh through the Service Worker update flow.
+8. Browser, both accounts: the home page shows 0 flowers and 0 sunshine and keeps showing them after refresh. Each account sees only its own balances. Log out and log in as the other account: no previous numbers appear at any point. While still on the authenticated home page, switch offline and click the wallet card's refresh button: it shows an error without numbers. Returning online does not replay a write; retry the read explicitly. A network toggle alone does not reload. A full page refresh offline may show the login page because API/session data is not persisted; that existing behavior is preserved.
+9. API: `GET /api/v1/wallet` without a cookie -> 401; with a pre-authentication session -> 401; authenticated -> 200 `{ "wallet": { "flower": 0, "sunshine": 0 } }` with `Cache-Control: no-store`; POST/PATCH/DELETE on `/api/v1/wallet` are rejected (405 or 404, whichever Drogon v1.9.11 returns for an unregistered method; record the observed code) and never change data.
+10. Main database: the wallet tables still contain no rows; no wallet audit events exist.
+
+Out of scope for M2-B and still open: posting and settlement (M3), existing-account serialization and post-commit snapshot tests (M3), admin wallet views (D19: none in M2), partner balances (D21: none).
+
+### 9.16 M2-B implementation by Codex (2026-10-07; verification pending)
+
+Authorization: the owner assigned M2-B directly to Codex instead of Claude Code.
+This covers the additive GET endpoint, OpenAPI 0.3.0, startup enforcement, own-wallet
+home card, regression tests, and documentation. It does not authorize M3+, wallet
+posting, changes to 0006 or grants, dependency changes, or deployment configuration
+changes. The owner continues to execute builds/tests/database/container/Git actions.
+
+Implemented:
+
+- WalletService.h/.cc: a single membership/latest-ledger query; own balances only,
+  zero for missing entries, SpaceNotFound without membership, generic Error on a
+  query failure. Json::Int64 envelope. No transaction, account creation, ledger
+  write, or audit event. WalletController.cc: GET + AuthFilter + requireUser;
+  200/401/404/500 through the existing no-store response helpers. Controller added
+  to the explicit CMake executable list; service discovered by the existing GLOB.
+- WalletStartupCheck.h/.cc: shared WalletPrivilegePolicy query, 10-second bounded
+  wait, heap-owned promise callbacks, late replies safe; missing/error/timeout or
+  failed report refuses startup. Logs policy summary or a fixed error reason,
+  never exception text. main.cc invokes it after DB readiness and before filter
+  registration, listener registration, scheduler start and app().run().
+- Web: wallet types/API wrapper/store and HomeView card; idle/loading/ready/error
+  states, refresh/error retry, memory only, no CSRF header on GET. Each load/reset advances
+  a generation; older successes AND failures are ignored. Session reset, anonymous
+  or changed-user bootstrap, failed bootstrap, and changed-user me snapshots clear
+  the wallet. Home loads when the authenticated user appears/changes, and on refresh/retry.
+- Tests written: unit startup decisions and integer JSON; db_gated block 12 real
+  service reads 0/0, no-space and query-error outcomes without wallet writes, plus
+  actual startup wrapper. Rollback-only production-SQL checks cover latest seq,
+  both assets, partner/other-space exclusion and no membership. Non-wallet committed
+  fixtures are deleted by UUID; rollback-only cases use the independent observer.
+  Static checks cover the new contract/route/CMake/startup ordering inside main.
+  Web wallet-client, wallet-store, wallet-session and home-wallet specs cover GET,
+  missing CSRF, offline failure, rendering/retry, concurrency and session boundaries.
+
+Files changed for M2-B (excluding earlier M2-A work):
+
+- contracts/openapi.yaml
+- services/api/CMakeLists.txt; services/api/src/main.cc
+- services/api/src/services/WalletService.h and WalletService.cc (new)
+- services/api/src/controllers/WalletController.cc (new)
+- services/api/src/db/WalletStartupCheck.h and WalletStartupCheck.cc (new)
+- services/api/tests/UnitTest.cc, StaticCheckTest.cc, DbGatedTest.cc
+- services/api/tests/WalletReadDbTests.h (new)
+- apps/web/src/api/types.ts; apps/web/src/api/wallet.ts (new)
+- apps/web/src/stores/session.ts; apps/web/src/stores/wallet.ts (new)
+- apps/web/src/views/HomeView.vue
+- apps/web/tests/unit/wallet-client.spec.ts, wallet-store.spec.ts,
+  wallet-session.spec.ts, home-wallet.spec.ts (new)
+- docs/phase1-plan.md; docs/claude-code-handoff.md; CLAUDE.md
+
+Status: files modified and source reviewed only. VERIFICATION HAS NOT BEEN RUN.
+No build, type check, test, database, container, install or Git command was run.
+No real .env or backup content was read. No applied migration was modified.
+M2-B has not been accepted. Section 9.15 is the owner-run rollout sequence.
+
+Unverified: compilation and new routing; actual startup success/refusal/timeout;
+added DB tests and their combined 30-second budget; web type checks, unit/component
+specs and visual layout. Live reads with nonzero committed balances are deferred
+until posting has its own approved fixture strategy. SQL tests read nonzero values
+only inside rollback-only transactions; they do not prove existing-account lock
+serialization or post-commit snapshot visibility. The main database still needs
+0006 before the new runtime can start. A wallet read may update the session's
+last_seen_at through the existing AuthFilter; it performs no wallet/audit writes.
+
+### 9.17 M2-B first owner-run backend test and audit-query repair (2026-10-07)
+
+- Test image build: owner reported exit 0.
+- First full CTest: unit Passed (0.02 s), db_gated Failed (1.13 s), static_check
+  Passed (0.00 s), total 1.15 s, exit 8. The target-database guard passed for
+  usapp_test. Database output reported 591 assertions and 2 failures.
+- Both failed assertions originated from the new WalletReadDbTests.h audit
+  queries: audit_logs has actor_type and actor_id (0005), not actor_user_id.
+  Codex corrected both queries to actor_type='user' AND actor_id IN (...).
+  The no-audit assertions remain; neither assertion was removed or weakened.
+- Repair scope: test header and status documentation only. Wallet service,
+  startup enforcement, migration 0006, permissions and frontend unchanged.
+- The failure remains part of the record. Codex did not execute tests or database
+  commands. The owner subsequently rebuilt and reran full CTest; see Section 9.18.
+  Frontend checks, main migration, runtime rollout and live acceptance remain
+  pending. The initial not-run status in Section 9.16 describes delivery time.
+
+### 9.18 M2-B backend rerun and Vue test-configuration repair (2026-10-07)
+
+- Owner rebuilt the repaired test image, exit 0. Full CTest rerun: unit Passed
+  (0.01 s), db_gated Passed (1.05 s, not skipped), static_check Passed (0.00 s),
+  total 1.06 s, zero failed targets, exit 0. Per-assertion counts were not supplied
+  for this passing run. This supersedes the pending backend rerun in Section 9.17.
+- First web unit-test run: seven files passed, 52 tests passed; one suite failed
+  to load (home-wallet.spec.ts), duration 16.09 s, exit 1. HomeView.vue was sent
+  to JavaScript import analysis without Vue transformation; its component tests
+  therefore did not execute. This does not establish a HomeView syntax defect.
+- Source-confirmed cause: the standalone vitest.config.ts did not register the
+  Vue plugin. @vitejs/plugin-vue already exists in package.json and the regular
+  Vite build uses it. Codex added its import and plugins: [vue()] to the standalone
+  test config. No dependency or lockfile changed; PWA plugin remains excluded.
+- Repair statically reviewed only. Codex did not run any test, build, database,
+  container or Git command. Web rerun, type checks/build, main migration, startup
+  and live acceptance remain pending; M2-B is not accepted.
+- Add apps/web/vitest.config.ts to the Section 9.16 M2-B changed-file list.
+
+### 9.19 M2-B owner-run verification and rollout (updated 2026-10-09)
+
+The owner performed the commands and browser checks below under Codex guidance.
+These results supersede delivery-time pending statements in Sections 9.16-9.18.
+Owner-run verification passed within the limits below. A separate formal M2
+acceptance decision has not been recorded; Git review/commit/push is pending.
+Neither Codex nor Claude Code ran build/test/database/container/Git commands.
+
+Automated checks and rollout (2026-10-07):
+
+- Repaired backend test image rebuilt, exit 0. All three CTest targets Passed:
+  unit 0.01 s, db_gated 1.05 s (not skipped), static_check 0.00 s; total 1.06 s,
+  exit 0. Passing-run per-assertion counts were not supplied. Earlier failed runs
+  and both repairs remain recorded in Sections 9.17-9.18.
+- Web unit-test rerun exit 0. Successful-rerun file/test counts were not supplied;
+  the earlier seven files/52 tests are not used as counts for the successful run.
+  Separate web type check exit 0. Web production build, including type checks and
+  service worker generation, exit 0; 15 precache entries, 140.91 KiB.
+- Fresh pre-migration main backup: pg_dump custom format exit 0; host export exit 0,
+  backups/usapp_before_m2b_0006_20261007_175748.dump, 104193 bytes. This particular
+  backup was not restore-tested; Phase 0 restoration is separate evidence.
+- Main DryRun exit 0: six existing checksums matched, only 0006 pending. Main
+  apply plus -InitRoles exit 0. Frozen 0006 checksum:
+  2633e17ea6ff6e664832df84023d1fab8aa9513b4cfe48786c4ca093bc7d543d.
+  Do not edit the applied migration.
+- Main counts after migration: users/spaces/members 2/1/2; all three wallet tables
+  empty, query exit 0. Both roles non-superuser with zero memberships; API SELECT
+  and INSERT on the three tables, UPDATE only on accounts.lock_token, forbidden
+  table privileges false, push/public privileges false; query exit 0. The owner
+  also reported the old runtime compatibility check successful.
+- Preserved old runtime image:
+  sha256:f576443a538d44fdccff1c462f9e07d89360aba38b5c868bb8300b476e1ddf37,
+  rollback tag usapp-api:before-m2b-20261007_180639. Owner checked matching IDs.
+  The rollback itself was not exercised.
+- New runtime build and api update exit 0; api Healthy. Startup log at
+  2026-10-07 10:08:01.861009 UTC: role=usapp_api ok=true checks=187 mismatches=0
+  missing=0 unexpected=0. The complete shared policy passed on the main database.
+  Web was built after backend startup and served via the existing dist bind mount.
+
+Owner browser/API checks (completed by 2026-10-09):
+
+- Screenshot: own-wallet card displayed flower 0 and sunshine 0; membership 2/2.
+  Owner reported offline card refresh showed an error without numbers and online
+  retry restored 0/0. Owner reported logout/login to the other member, correct
+  account identity, 2/2 membership and wallet refresh successful.
+- Authenticated GET /api/v1/wallet: 200, wallet {flower: 0, sunshine: 0},
+  Cache-Control: no-store, no-cache, must-revalidate, private. This was a plain
+  browser GET without an X-CSRF-Token header.
+- No-cookie curl: 401 UNAUTHENTICATED, no wallet data.
+- Private-window bootstrap: session 200, authenticated=false, nonempty pre-auth
+  token (only its presence printed); subsequent wallet GET 401 UNAUTHENTICATED.
+- Authenticated POST/PATCH/DELETE with the current session-bound CSRF header:
+  all returned 405 Method Not Allowed. Browser console error lines were expected.
+- Final main counts: database usapp, users/spaces/members 2/1/2, wallet accounts/
+  operations/entries 0/0/0; query exit 0. Audit action prefix wallet.% count 0,
+  query exit 0. This audit query checks that action prefix only.
+
+Restart incident (2026-10-09): the login page reported an expired security token,
+but GET /api/v1/session failed at the network layer. Compose could not connect to
+dockerDesktopLinuxEngine because Docker Desktop had not been opened. After the
+owner started Docker Desktop, api/postgres were Healthy and Caddy was running;
+the owner subsequently obtained an authenticated wallet 200 response. No cache
+clear or code change was needed. The generic CSRF error text can also mask a
+bootstrap network failure; clearer wording is a possible future fix, not included
+in this milestone. This observation does not explain the older initial blank screen.
+
+Remaining limits:
+
+- Targeted local checks, not production readiness or exhaustive security review.
+- Both live balances were zero; manual account switching alone cannot prove
+  isolation of different balances. Automated rollback-only SQL tests cover nonzero
+  latest entries, both assets and caller/partner/other-space separation.
+- No separately reported full-page balance-persistence check; API calls and card
+  refresh/account switching were observed or owner-reported as described above.
+- No live authenticated no-space 404 check; service-level automated coverage only.
+  No live startup refusal/timeout or rollback-image exercise; successful startup
+  and automated decision/policy checks are recorded, not failure-path deployment.
+- No committed nonzero-wallet/posting path, existing-account serialization or
+  post-commit visibility check; these remain M3 requirements. HEAD/OPTIONS behavior
+  was not separately checked. A read can touch session last_seen_at via AuthFilter.
+- Fresh backup not restore-tested; no offsite copy claim. No current Git state or
+  commit/push is inferred from runtime checks. M3-M10 remain unapproved.

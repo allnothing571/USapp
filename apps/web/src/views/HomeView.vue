@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * 阶段 0 占位首页。
+ * 首页：阶段 0 账号/空间，M1 昵称，M2-B 自己的只读资产。
  *
- * 只展示"当前用户 / 空间时区 / 成员槽位 / 可用邀请"这四件事，加一个注销按钮。
- * 阶段 1 M1 只新增"修改自己的昵称"（PATCH /api/v1/me）。
+ * 展示当前用户、自己的资产、空间时区、成员槽位与可用邀请，加一个注销按钮。
+ * 阶段 1 已增加自己的昵称编辑与资产只读卡片。
  * **不实现**其它阶段 1+ 的功能（任务、奖励、留言、日历、纪念日等）——
  * 那些功能要先有独立评审过的契约，这里不提前埋。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { ApiError } from '@/api/client'
@@ -20,9 +20,11 @@ import {
 import { describeError } from '@/api/error-messages'
 import { useSessionStore } from '@/stores/session'
 import { useSpaceStore } from '@/stores/space'
+import { useWalletStore } from '@/stores/wallet'
 
 const session = useSessionStore()
 const spaceStore = useSpaceStore()
+const walletStore = useWalletStore()
 const router = useRouter()
 
 const errorText = ref('')
@@ -31,6 +33,12 @@ const loggingOut = ref(false)
 const user = computed(() => session.user)
 const space = computed(() => spaceStore.space)
 const members = computed(() => spaceStore.members)
+
+// Also reload when the caller changes while this component remains mounted.
+watch(() => session.user?.id, (id) => {
+  if (id && session.isAuthenticated) void walletStore.load()
+  else walletStore.reset()
+}, { immediate: true })
 
 /** 契约固定两个成员槽位（slot 1 / 2），把空槽也画出来，别让人以为只有一个位置。 */
 const slots = computed(() =>
@@ -119,7 +127,7 @@ async function logout(): Promise<void> {
   <section class="page">
     <header>
       <h1 class="page__title">小空间</h1>
-      <p class="page__subtitle">阶段 0：账号与空间已就位，其余功能后续开放。</p>
+      <p class="page__subtitle">账号、空间与我的资产，其余功能后续开放。</p>
     </header>
 
     <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
@@ -161,6 +169,24 @@ async function logout(): Promise<void> {
         </div>
       </form>
       <button v-else class="btn btn--small btn--soft" type="button" @click="startEditName()">修改昵称</button>
+    </div>
+
+    <div class="card" aria-live="polite" :aria-busy="walletStore.status === 'loading'">
+      <h2 class="card__title">我的资产</h2>
+      <dl v-if="walletStore.status === 'ready' && walletStore.balances" class="kv">
+        <dt class="kv__key">小红花</dt>
+        <dd class="kv__value">{{ walletStore.balances.flower }}</dd>
+        <dt class="kv__key">阳光值</dt>
+        <dd class="kv__value">{{ walletStore.balances.sunshine }}</dd>
+      </dl>
+      <template v-else-if="walletStore.status === 'error'">
+        <p class="hint hint--error" role="alert">{{ walletStore.errorText }}</p>
+        <button class="btn btn--small btn--soft" type="button" @click="walletStore.load()">重试</button>
+      </template>
+      <p v-else class="card__hint">加载中…</p>
+      <button v-if="walletStore.status === 'ready'" class="btn btn--small btn--soft" type="button" @click="walletStore.load()">
+        刷新
+      </button>
     </div>
 
     <div class="card">

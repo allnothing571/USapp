@@ -15,6 +15,15 @@ PostgreSQL 17 迁移与数据库侧测试。
 | `0003_couple_binding.sql` | `couples` / `couple_members` / `space_invites` |
 | `0004_scheduler.sql` | `scheduler_ticks`（调度基础） |
 | `0005_admin_audit.sql` | `admin_users` / `admin_sessions` / `audit_logs` + 只读视图 |
+| `0006_wallet_ledger.sql` | 阶段 1 M2-A：`wallet_accounts` / `wallet_operations` / 只追加的 `wallet_ledger_entries`；链式校验、上限、只追加触发器、钱包表权限收窄；不写入任何钱包数据 |
+
+### 钱包表（0006）要点
+
+- 账户不保存余额或序号；余额 = 该账户 `seq` 最大的一条流水的 `balance_after`，没有流水即为 0。
+- 每条流水在账户行锁下对照上一条不可变流水校验：`seq` 连续、`balance_after = 上一条 + amount`（起始状态为 0）。
+- 每条 INSERT 只能写一行流水；三张表的 UPDATE / DELETE / TRUNCATE 由触发器拒绝（对维护角色同样生效）。
+- `usapp_api` 只有三张表的 SELECT、INSERT，以及 `wallet_accounts.lock_token` 的列级 UPDATE（仅用于行锁，真正的 UPDATE 仍被触发器拒绝）；`usapp_push` 与 PUBLIC 没有任何权限。
+- `init-roles.sql` 第 7 节在 ALL TABLES 授权之后重新收窄钱包表权限，因此重新执行 `apply.ps1 -InitRoles` 不会放宽。
 
 ## 关键约束（阶段 0 决策，后续阶段不得放宽）
 
@@ -56,3 +65,8 @@ psql -h 127.0.0.1 -U usapp_api -d usapp -v ON_ERROR_STOP=1 -f database/tests/adv
 
 > 这些测试需要在**已应用全部迁移**的数据库上运行；`advisory_lock_test.sql`
 > 需要两个并发连接，因此必须用 psql 的 `\connect`/后台会话方式运行（文件内已写明步骤）。
+
+`wallet_ledger_test.sql`（阶段 1 M2-A）只在测试库 `usapp_test` 上运行，并且要运行两次：
+一次以 `usapp_api`（验证权限屏障，期望 42501），一次以维护超级用户（验证触发器，期望 `UW001`）。
+脚本自行识别运行身份，其他身份直接报错；全程 `BEGIN ... ROLLBACK`，不提交任何数据；
+任何意外成功都会 `RAISE EXCEPTION` 并使 psql 以非零码退出。

@@ -87,6 +87,16 @@ export interface SpaceResponse {
   space: Space
 }
 
+/** Own ledger balances; bounds are below Number.MAX_SAFE_INTEGER. */
+export interface Wallet {
+  flower: number
+  sunshine: number
+}
+
+export interface WalletResponse {
+  wallet: Wallet
+}
+
 /** `#/components/schemas/InviteResponse` */
 export interface InviteResponse {
   invite: CreatedInvite

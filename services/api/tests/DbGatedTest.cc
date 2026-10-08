@@ -17,6 +17,9 @@
 //      - AdminFilter 真实管理员会话校验（无效 / 过期 / 撤销拒绝，有效放行，CSRF 绑定）回归测试
 //   5. 阶段 1 M1：真实 ProfileService 昵称更新（只改调用者、同事务审计、非法输入不修改）
 //   6. 阶段 1 M1：ProfileService 结束后释放请求回调（无 ctx -> TxScope -> onError_ -> ctx 环）
+//   7. 阶段 1 M2-A：钱包流水账（WalletLedgerDbTests.h）：有效权限矩阵、触发器目录、
+//      链式校验与篡改、上限、结构与成员一致性、延迟完整性（立即与提交时）、幂等、
+//      usapp_api 权限结果、账户创建竞争。从不提交钱包行。
 //
 // 依赖：usapp_core、PostgreSQL 17 测试库。
 // =====================================================================
@@ -35,7 +38,10 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "TestDatabaseGuard.h"
 #include "TestSupport.h"
+#include "WalletLedgerDbTests.h"
+#include "WalletReadDbTests.h"
 #include "core/Crypto.h"
 #include "core/Errors.h"
 #include "db/Db.h"
@@ -84,14 +90,41 @@ int main() {
         return 1;
     }
 
-    // 迁移完整性门控：阶段 0 的 6 个迁移必须全部已应用（精确匹配完整 BaseName）
+    // 目标库守卫：必须在任何夹具写入与测试用例（含既有用例）之前完成。
+    // 依据服务器返回的 current_database()，要求与 usapp_test 完全相等；不依赖连接串子串。
+    // 不符或查询失败一律以失败退出（返回 1，不是 77/Skipped）。只输出安全的库名与原因。
+    {
+        std::string currentDatabase;
+        try {
+            const auto rows = db::Pool::instance().client()->execSqlSync(
+                "SELECT current_database()::text AS name");
+            if (rows.size() != 1u || rows[0]["name"].isNull()) {
+                std::cerr << "[SECURITY ALERT] 无法确定当前数据库名，拒绝运行数据库测试。\n";
+                return 1;
+            }
+            currentDatabase = rows[0]["name"].as<std::string>();
+        } catch (const std::exception &) {
+            std::cerr << "[SECURITY ALERT] 查询 current_database() 失败，拒绝运行数据库测试。\n";
+            return 1;
+        }
+        if (!usapptest::isExpectedTestDatabase(currentDatabase)) {
+            std::cerr << "[SECURITY ALERT] 当前数据库为 '" << usapptest::safeDatabaseName(currentDatabase)
+                      << "'，不是 '" << usapptest::kExpectedTestDatabase
+                      << "'，拒绝运行数据库测试（未写入任何数据）。\n";
+            return 1;
+        }
+        std::printf("[ INFO ] 目标库守卫通过: current_database() = %s\n", usapptest::kExpectedTestDatabase);
+    }
+
+    // 迁移完整性门控：阶段 0 的 6 个迁移与阶段 1 M2-A 的 0006 必须全部已应用（精确匹配完整 BaseName）
     const std::vector<std::string> expectedMigrations = {
         "0000_schema_migrations",
         "0001_common",
         "0002_identity",
         "0003_couple_binding",
         "0004_scheduler",
-        "0005_admin_audit"
+        "0005_admin_audit",
+        "0006_wallet_ledger"
     };
 
     try {
@@ -1695,6 +1728,15 @@ int main() {
             CHECK(false);
         }
     }
+
+    // -----------------------------------------------------------------
+    // 11. 阶段 1 M2-A：钱包流水账（见 WalletLedgerDbTests.h）
+    //     工作事务使用本进程的连接池；观察者是独立的单连接客户端。
+    // -----------------------------------------------------------------
+    usapptest::wallet::runWalletLedgerDbTests(client, dsn);
+
+    // 12. M2-B: real read service and its SQL, with no committed wallet data.
+    usapptest::wallet::runWalletReadDbTests(client, dsn);
 
     return usapptest::finish();
 }

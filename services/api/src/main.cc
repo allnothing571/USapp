@@ -1,12 +1,13 @@
 // =====================================================================
 // services/api/src/main.cc
 //
-// USapp 阶段 0 —— C++ 主进程入口。
+// USapp 主进程入口（阶段 0 基础 + 阶段 1 增量）。
 //
 // 启动顺序（每一步失败都 fail fast，绝不带病启动）：
 //   1. 日志级别（LOG_LEVEL，默认 info）
 //   2. AppConfig::load()        环境变量读取与校验
 //   3. 数据库连接池初始化 + 有界等待（等 Postgres 起来，最多 30 秒）
+//      随后钱包有效权限检查（最多 10 秒）；失败时在监听/调度前退出。
 //   4. 注册两个过滤器（AuthFilter / AdminFilter），供控制器按名引用
 //   5. 配置并启动进程内调度（阶段 0 只注册心跳任务，不做任何业务结算）
 //   6. 绑定两个监听器：公开（Caddy 反代）与管理（只经宿主回环）
@@ -33,6 +34,7 @@
 #include "config/AppConfig.h"
 #include "core/Errors.h"
 #include "db/Db.h"
+#include "db/WalletStartupCheck.h"
 #include "http/AdminFilter.h"
 #include "http/AuthFilter.h"
 #include "http/HttpUtil.h"
@@ -175,6 +177,21 @@ int main() {
     if (!waitForDatabase(15)) {
         return 1;
     }
+
+    // M2-B: require the effective wallet privilege matrix before any listener or job.
+    const auto walletStartup =
+        usapp::db::checkWalletPrivilegesForStartup(usapp::db::Pool::instance().client());
+    if (!walletStartup.allowed()) {
+        if (walletStartup.report) {
+            LOG_ERROR << walletStartup.report->summary();
+        } else {
+            LOG_ERROR << "wallet privilege policy: ok=false reason="
+                      << (walletStartup.state == usapp::db::WalletStartupResult::State::Timeout
+                              ? "timeout" : "query_error");
+        }
+        return 1;
+    }
+    LOG_INFO << walletStartup.report->summary();
 
     // ---- 3) Drogon 运行参数 ----
     // 阶段 0 的请求体都很小（验证码、邀请码、JSON 元数据），这里给一个明确上限：

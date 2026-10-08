@@ -56,6 +56,7 @@ add_executable(usapp_api
     "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SessionController.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/AuthController.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SpaceController.cc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WalletController.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/InviteController.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/AdminController.cc"
 )

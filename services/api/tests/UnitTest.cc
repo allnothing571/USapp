@@ -8,7 +8,9 @@
 // 依赖：usapp_core（纯 C++ 逻辑与工具函数，不依赖数据库连接与网络）。
 // =====================================================================
 
+#include <algorithm>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -16,16 +18,20 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "TestDatabaseGuard.h"
 #include "TestSupport.h"
 #include "core/Crypto.h"
 #include "core/Errors.h"
 #include "db/Db.h"
+#include "db/WalletPrivilegePolicy.h"
+#include "db/WalletStartupCheck.h"
 #include "http/AdminFilter.h"
 #include "http/ControllerSupport.h"
 #include "http/HttpUtil.h"
 #include "scheduler/LockKey.h"
 #include "services/ProfileService.h"
 #include "services/RegistrationPolicy.h"
+#include "services/WalletService.h"
 
 int main() {
     using namespace usapp;
@@ -262,6 +268,179 @@ int main() {
     }
 
     // -----------------------------------------------------------------
+    // 5b2. db_gated 目标库守卫（纯函数）：只有精确等于 usapp_test 才放行。
+    //      不对主库运行任何测试来验证拒绝路径；拒绝路径由这里的纯函数断言覆盖。
+    // -----------------------------------------------------------------
+    TEST_CASE("TestDatabaseGuard: current_database() 必须精确等于 usapp_test") {
+        CHECK(usapptest::isExpectedTestDatabase("usapp_test"));
+        for (const std::string name : {"usapp", "usapp_test2", "usapp_testx", "USAPP_TEST", "Usapp_test",
+                                       "usapp_test ", " usapp_test", "prod_usapp_test", "usapp_tes", "",
+                                       "postgres", "usapp_recovery"}) {
+            CHECK_FALSE(usapptest::isExpectedTestDatabase(name));
+        }
+        CHECK_FALSE(usapptest::isExpectedTestDatabase(std::string("usapp_test\0x", 12)));
+        // 输出只含安全字符，空名有占位，过长名被截断。
+        CHECK_EQ(usapptest::safeDatabaseName("usapp"), std::string("usapp"));
+        CHECK_EQ(usapptest::safeDatabaseName("a b'c;d"), std::string("a?b?c?d"));
+        CHECK_EQ(usapptest::safeDatabaseName(""), std::string("<empty>"));
+        CHECK_EQ(usapptest::safeDatabaseName(std::string(100, 'x')).size(), 66u);
+    }
+
+    // -----------------------------------------------------------------
+    // 5c. 钱包有效权限矩阵的期望值与报告（阶段 1 M2-A）：纯函数，无数据库。
+    //     真实数据库上的检查见 DbGatedTest.cc / WalletLedgerDbTests.h。
+    // -----------------------------------------------------------------
+    TEST_CASE("WalletPrivilegePolicy: 期望值、完整性、NULL 与安全输出") {
+        using usapp::db::WalletPrivilegePolicy;
+        using usapp::db::WalletPrivilegeRow;
+        using P = WalletPrivilegePolicy;
+
+        auto row = [](const std::string &kind, const std::string &subject, const std::string &object,
+                      const std::string &column, const std::string &privilege, std::optional<bool> actual) {
+            WalletPrivilegeRow r;
+            r.kind = kind;
+            r.subject = subject;
+            r.object = object;
+            r.column = column;
+            r.privilege = privilege;
+            r.actual = actual;
+            return r;
+        };
+
+        // 期望值：只有 current 在三张表上有 SELECT / INSERT；UPDATE 只在 wallet_accounts.lock_token。
+        CHECK(P::expectedFor(row("table_privilege", "current", "wallet_ledger_entries", "", "SELECT", {})) == true);
+        CHECK(P::expectedFor(row("table_privilege", "current", "wallet_ledger_entries", "", "INSERT", {})) == true);
+        for (const std::string priv : {"UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}) {
+            CHECK(P::expectedFor(row("table_privilege", "current", "wallet_accounts", "", priv, {})) == false);
+        }
+        CHECK(P::expectedFor(row("table_privilege", "public", "wallet_accounts", "", "SELECT", {})) == false);
+        CHECK(P::expectedFor(row("table_privilege", "usapp_push", "wallet_operations", "", "INSERT", {})) == false);
+        CHECK(P::expectedFor(row("any_column_privilege", "current", "wallet_accounts", "", "UPDATE", {})) == true);
+        CHECK(P::expectedFor(row("any_column_privilege", "current", "wallet_ledger_entries", "", "UPDATE", {})) == false);
+        CHECK(P::expectedFor(row("any_column_privilege", "current", "wallet_accounts", "", "REFERENCES", {})) == false);
+        CHECK(P::expectedFor(row("column_privilege", "current", "wallet_accounts", "lock_token", "UPDATE", {})) == true);
+        CHECK(P::expectedFor(row("column_privilege", "current", "wallet_accounts", "couple_id", "UPDATE", {})) == false);
+        CHECK(P::expectedFor(row("column_privilege", "public", "wallet_accounts", "lock_token", "UPDATE", {})) == false);
+        CHECK(P::expectedFor(row("identity", "current", "usapp_api", "", "is_app_role", {})) == true);
+        CHECK(P::expectedFor(row("identity", "current", "", "", "rolsuper", {})) == false);
+        CHECK(P::expectedFor(row("identity", "current", "", "", "has_role_memberships", {})) == false);
+        CHECK(P::expectedFor(row("table", "current", "wallet_operations", "", "owned_by_current_user", {})) == false);
+        // 无法识别的行没有期望值。
+        CHECK_FALSE(P::expectedFor(row("table_privilege", "current", "users", "", "SELECT", {})).has_value());
+        CHECK_FALSE(P::expectedFor(row("table_privilege", "someone", "wallet_accounts", "", "SELECT", {})).has_value());
+
+        // 完全符合的结果集：用期望值作为实际值构造。
+        std::vector<WalletPrivilegeRow> rows;
+        auto add = [&](WalletPrivilegeRow r) {
+            r.actual = P::expectedFor(r);
+            rows.push_back(r);
+        };
+        add(row("identity", "current", "usapp_api", "", "is_app_role", {}));
+        add(row("identity", "current", "", "", "rolsuper", {}));
+        add(row("identity", "current", "", "", "has_role_memberships", {}));
+        add(row("identity", "usapp_push", "", "", "role_exists", {}));
+        const std::vector<std::pair<std::string, std::vector<std::string>>> columns = {
+            {"wallet_accounts", {"user_id", "asset_type", "couple_id", "lock_token", "created_at"}},
+            {"wallet_operations", {"id", "couple_id", "actor_user_id", "source_id"}},
+            {"wallet_ledger_entries", {"id", "operation_id", "amount", "balance_after"}},
+        };
+        for (const auto &table : P::walletTables()) {
+            add(row("table", "current", table, "", "exists", {}));
+            add(row("table", "current", table, "", "owned_by_current_user", {}));
+            for (const auto &subject : P::subjects()) {
+                for (const auto &priv : P::tablePrivileges()) add(row("table_privilege", subject, table, "", priv, {}));
+                for (const auto &priv : P::anyColumnPrivileges()) {
+                    add(row("any_column_privilege", subject, table, "", priv, {}));
+                }
+            }
+        }
+        for (const auto &entry : columns) {
+            for (const auto &column : entry.second) {
+                for (const auto &subject : P::subjects()) {
+                    add(row("column_privilege", subject, entry.first, column, "UPDATE", {}));
+                }
+            }
+        }
+        const auto good = P::evaluate(rows);
+        CHECK(good.ok());
+        CHECK(db::walletStartupAllowed(good));
+        CHECK((db::WalletStartupResult{db::WalletStartupResult::State::Report, good}).allowed());
+        CHECK_FALSE((db::WalletStartupResult{db::WalletStartupResult::State::QueryError, good}).allowed());
+        CHECK_FALSE((db::WalletStartupResult{db::WalletStartupResult::State::Timeout, good}).allowed());
+        CHECK_FALSE(db::walletStartupAllowed(std::nullopt));
+        CHECK_FALSE(db::walletStartupAllowed(db::WalletPrivilegeReport{}));
+        CHECK_EQ(good.currentRole, std::string("usapp_api"));
+        CHECK(good.mismatches().empty());
+        CHECK(good.missing.empty());
+
+        // 多出的 UPDATE 权限（例如 init-roles 重新放宽）必须被发现。
+        auto widened = rows;
+        for (auto &r : widened) {
+            if (r.kind == "table_privilege" && r.subject == "current" && r.object == "wallet_ledger_entries" &&
+                r.privilege == "UPDATE") {
+                r.actual = true;
+            }
+        }
+        const auto widenedReport = P::evaluate(widened);
+        CHECK_FALSE(widenedReport.ok());
+        CHECK_FALSE(db::walletStartupAllowed(widenedReport));
+        CHECK_EQ(widenedReport.mismatches().size(), 1u);
+
+        // 其他列被授予 UPDATE 也必须被发现。
+        auto columnWidened = rows;
+        for (auto &r : columnWidened) {
+            if (r.kind == "column_privilege" && r.subject == "current" && r.column == "couple_id" &&
+                r.object == "wallet_accounts") {
+                r.actual = true;
+            }
+        }
+        CHECK_FALSE(P::evaluate(columnWidened).ok());
+        CHECK_FALSE(db::walletStartupAllowed(P::evaluate(columnWidened)));
+
+        // NULL（无法判定，例如缺表）视为不符合。
+        auto withNull = rows;
+        withNull[0].actual.reset();
+        CHECK_FALSE(P::evaluate(withNull).ok());
+        CHECK_FALSE(db::walletStartupAllowed(P::evaluate(withNull)));
+
+        // 缺少必需的检查项。
+        auto missingLock = rows;
+        missingLock.erase(std::remove_if(missingLock.begin(), missingLock.end(),
+                                         [](const WalletPrivilegeRow &r) {
+                                             return r.kind == "column_privilege" && r.column == "lock_token" &&
+                                                    r.subject == "current";
+                                         }),
+                          missingLock.end());
+        const auto missingReport = P::evaluate(missingLock);
+        CHECK_FALSE(db::walletStartupAllowed(missingReport));
+        CHECK_FALSE(missingReport.ok());
+        CHECK_EQ(missingReport.missing.size(), 1u);
+
+        // 无法识别的行。
+        auto extra = rows;
+        extra.push_back(row("table_privilege", "current", "users", "", "SELECT", true));
+        CHECK_FALSE(P::evaluate(extra).ok());
+        CHECK_FALSE(db::walletStartupAllowed(P::evaluate(extra)));
+
+        // 身份错误：不是 usapp_api。
+        auto wrongRole = rows;
+        wrongRole[0].object = "postgres";
+        wrongRole[0].actual = false;
+        const auto wrongReport = P::evaluate(wrongRole);
+        CHECK_FALSE(db::walletStartupAllowed(wrongReport));
+        CHECK_FALSE(wrongReport.ok());
+        CHECK_EQ(wrongReport.currentRole, std::string("postgres"));
+
+        // 输出只含安全字符。
+        CHECK_EQ(P::safeName("a b;c'd"), std::string("a?b?c?d"));
+        const std::string summary = widenedReport.summary();
+        CHECK_CONTAINS(summary, "mismatches=1");
+        CHECK_CONTAINS(summary, "wallet_ledger_entries");
+        CHECK_NOT_CONTAINS(summary, "postgresql://");
+        CHECK_NOT_CONTAINS(summary, "password");
+    }
+
+    // -----------------------------------------------------------------
     // 6-9. AdminFilter 行为回归（真实 doFilter，无数据库）
     //
     // 回归对象：未登录即可 GET /api/admin/v1/users 等列表并拿到 200 + 数据。
@@ -450,6 +629,26 @@ int main() {
                 CHECK(adminctx::sessionId(req).empty());
             }
         }
+    }
+
+    TEST_CASE("Wallet: response envelope uses bounded integer balances, not strings") {
+        const auto zero = WalletService::responseBody({});
+        CHECK_EQ(zero.size(), 1u);
+        CHECK_EQ(zero["wallet"].size(), 2u);
+        CHECK(zero["wallet"]["flower"].isInt64());
+        CHECK_EQ(zero["wallet"]["flower"].asInt64(), Json::Int64(0));
+        CHECK_EQ(zero["wallet"]["sunshine"].asInt64(), Json::Int64(0));
+        const auto caps = WalletService::responseBody({1000000, 1000000000});
+        CHECK_EQ(caps["wallet"]["flower"].asInt64(), Json::Int64(1000000));
+        CHECK_EQ(caps["wallet"]["sunshine"].asInt64(), Json::Int64(1000000000));
+        CHECK_FALSE(caps["wallet"]["flower"].isString());
+    }
+
+    TEST_CASE("Wallet startup: absent client refuses with no connection details") {
+        const auto result = db::checkWalletPrivilegesForStartup(nullptr);
+        CHECK(result.state == db::WalletStartupResult::State::QueryError);
+        CHECK_FALSE(result.allowed());
+        CHECK_FALSE(result.report.has_value());
     }
 
     return usapptest::finish();

@@ -17,6 +17,7 @@ import { ApiError } from '@/api/client'
 import { setCsrfToken } from '@/api/csrf'
 import type { EmailCodeAccepted, SessionBootstrap, Space, User } from '@/api/types'
 import { useSpaceStore } from './space'
+import { useWalletStore } from './wallet'
 
 /** 会话状态机：unknown（未引导）→ anonymous | authenticated。 */
 export type SessionStatus = 'unknown' | 'anonymous' | 'authenticated'
@@ -44,6 +45,9 @@ export const useSessionStore = defineStore('session', () => {
    * 同时负责：CSRF 令牌轮换落库、space store 的 hydrate/reset。
    */
   function applyBootstrap(payload: SessionBootstrap): void {
+    if (!payload.authenticated || user.value?.id !== payload.user?.id) {
+      useWalletStore().reset()
+    }
     csrfToken.value = payload.csrf_token
     setCsrfToken(payload.csrf_token)
     preAuthExpiresAt.value = payload.pre_auth_expires_at ?? null
@@ -76,6 +80,7 @@ export const useSessionStore = defineStore('session', () => {
     status.value = 'anonymous'
     // 其它业务 store 的清理入口统一登记在这里。
     useSpaceStore().reset()
+    useWalletStore().reset()
   }
 
   let inFlight: Promise<void> | null = null
@@ -87,13 +92,7 @@ export const useSessionStore = defineStore('session', () => {
     } catch (error) {
       // 引导失败时**不臆造**已登录状态，也保留不任何业务数据：fail closed。
       console.warn('[usapp/session] 会话引导失败，已按未认证处理。', error)
-      status.value = 'anonymous'
-      user.value = null
-      space.value = null
-      csrfToken.value = null
-      preAuthExpiresAt.value = null
-      setCsrfToken(null)
-      useSpaceStore().reset()
+      resetBusinessState()
     } finally {
       bootstrapped.value = true
     }
@@ -144,6 +143,7 @@ export const useSessionStore = defineStore('session', () => {
   /** 用 `GET /api/v1/me` 刷新用户与空间快照。 */
   async function refreshMe(): Promise<void> {
     const payload = await authApi.getMe()
+    if (user.value?.id !== payload.user.id) useWalletStore().reset()
     user.value = payload.user
     space.value = payload.space ?? null
     useSpaceStore().hydrate(payload.space ?? null)
@@ -157,6 +157,7 @@ export const useSessionStore = defineStore('session', () => {
   async function updateDisplayName(displayName: string): Promise<void> {
     await ensureCsrfToken()
     const payload = await authApi.updateMe({ display_name: displayName })
+    if (user.value?.id !== payload.user.id) useWalletStore().reset()
     user.value = payload.user
     space.value = payload.space ?? null
     useSpaceStore().hydrate(payload.space ?? null)

@@ -9,16 +9,31 @@ Phase 1 planning is authorized (docs/phase1-plan.md).
 M1 (nickname editing) was approved, implemented, and passed the owner-run
 acceptance checks on 2026-10-06 (docs/phase1-plan.md Section 7.9).
 
-Current task: documentation-only design of M2 (wallet and ledger) in
-docs/phase1-plan.md Section 9. Approved design directions (2026-10-06): D1 (rewards
-are newly created for the recipient), D2 bounds (balance and per-entry caps only),
-D18 (narrowed grants plus triggers that survive init-roles reruns), D19 (no new
-admin asset endpoints), D21 (own balances only). These directions are NOT
-implementation approval. M2-M10 and all other proposed defaults are NOT approved:
-do not implement any of them, or any other Phase 1 code, contract, migration,
-grant, SQL script, or dependency change, and do not run anything against a
-database, until the owner approves and assigns that specific milestone. Key task edits after
-publication of the current period require recipient confirmation (C3/D3).
+M2 design (docs/phase1-plan.md Section 9) has approved directions (2026-10-06): D1
+(rewards are newly created for the recipient), D2 bounds (balance and per-entry caps
+only), D18 (narrowed grants plus triggers that survive init-roles reruns), D19 (no
+new admin asset endpoints), D21 (own balances only).
+
+M2-A (wallet/ledger database foundation) was approved and implemented on
+2026-10-07 and passed owner-run verification on usapp_test (docs/phase1-plan.md
+Section 9.14). During M2-B rollout, the owner also applied 0006 to the main
+database on 2026-10-07. Migration 0006 is applied and must never be edited.
+
+Current task: owner Git review/commit/push after M2-B verification (plan Section 9.19).
+The owner explicitly assigned M2-B directly to Codex on 2026-10-07; Codex
+implemented the read endpoint, OpenAPI 0.3.0, startup enforcement, web card,
+regression tests and docs. After correcting two test audit-column references,
+the owner rebuilt and passed all three backend CTest targets (exit 0). The first
+web test run passed 52 tests across seven files but failed to load the HomeView
+suite because Vitest lacked the existing Vue plugin. Codex enabled that plugin;
+the owner reported web rerun exit 0, type checks/build exit 0, and successful
+main migration, startup enforcement and live checks (plan Section 9.19).
+Owner-run verification passed; a separate formal M2 acceptance decision has not
+been recorded. Later Git status is not assumed. Claude Code should wait for the
+next explicitly assigned task, not redo the milestone.
+M3-M10 and other proposed defaults are NOT approved. Do not implement wallet
+posting or change applied migration 0006, grants, dependencies or deployment.
+Key task edits after publication require recipient confirmation (C3/D3).
 
 ## Roles and authorization
 - Claude Code implements assigned changes and the regression tests they need.
