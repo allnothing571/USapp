@@ -1,7 +1,7 @@
 # USapp: Claude Code Implementation / Codex Acceptance Handoff
 
 Updated: 2026-10-06, Asia/Shanghai. Later the same day: recorded owner-run acceptance results for the AdminFilter authentication fix (Section 2) and the HomeView member-label fix (Section 7, item 3). Subsequently: recorded the owner-made initial local Git baseline commit `b9cd0ea` (Section 6, "Git Baseline"). Subsequently: recorded documentation-only pre-push corrections to `README.md` and this file (Section 6, "Pre-Push Documentation Corrections"). Subsequently: recorded the owner-reported first push to a private GitHub repository, live administrator CSRF rejection checks, and scheduler heartbeat evidence (Section 6), and added the Phase 0 acceptance matrix `docs/phase0-acceptance.md`. Git hashes and repository status in this document are dated observations, not permanent current state; this document is not updated to record its own commits. Subsequently: recorded the owner's post-fix backend test timings and the pre-commit credential-pattern check (Section 6). Subsequently: recorded owner-run live user-side email-code Origin/CSRF negative checks and administrator session persistence after rejected logout requests (Section 6). Subsequently: recorded the owner's explicit acceptance of Phase 0 on 2026-10-06 as a local development baseline (Sections 1 and 6) and added the Phase 1 plan `docs/phase1-plan.md` (planning only). Statements elsewhere in this document that Phase 0 was "not accepted" or acceptance was "pending" are historical and describe the state when they were written. Subsequently: recorded the owner's approval of Phase 1 milestone M1 only, the C3/D3 correction, and Claude Code's M1 implementation, which has not been verified (Sections 1 and 6). Subsequently: recorded the owner-run M1 verification results (Section 6) and started the documentation-only M2 wallet/ledger design (`docs/phase1-plan.md` Section 9). Subsequently: recorded the owner's approved M2 design directions (D1, D2 bounds, D18, D19, D21) and revised the M2 design after review; M2 implementation remains unapproved (Section 1). Subsequently (2026-10-07): a second documentation-only M2 design revision (concurrency fixture scope, exact permission outcomes, effective privilege preflight, rollback-evidence limits); no approval status changed. Subsequently (2026-10-07): recorded the owner's approval of M2-A and Claude Code's M2-A implementation, verification pending (Sections 1 and 6). Subsequently (2026-10-07): recorded the owner-run M2-A verification on `usapp_test` (Section 6) and added the documentation-only M2-B design (`docs/phase1-plan.md` Section 9.15). Subsequently (2026-10-07): the owner assigned M2-B directly to Codex; implementation completed, verification pending (Section 6 and plan Section 9.16).
-Latest evidence update (2026-10-09, Asia/Shanghai): M2-B passed owner-run verification, main 0006 is applied, and startup policy passed. See Section 6 and plan Section 9.19. Earlier delivery-time pending statements are historical. A separate formal M2 acceptance decision and owner Git review/commit/push remain pending.
+Latest evidence update (2026-10-09, Asia/Shanghai): M2-B passed owner-run verification, main 0006 is applied, and startup policy passed. See Section 6 and plan Section 9.19. Earlier delivery-time pending statements are historical. A separate formal M2 acceptance decision has not been recorded. Later on 2026-10-09: the owner committed and pushed M2-A/M2-B as `594a77b` (Section 6, "Phase 1 M2 Git Publication"; dated observation), and Claude Code wrote the documentation-only M3 design `docs/phase1-m3-design.md`. Later on 2026-10-09: M3-A was approved, implemented, and passed the recorded owner-run verification on `usapp_test` (Section 6, "Phase 1 M3-A Owner-Run Verification Completed"; design Section 11.3).
 
 Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 
@@ -12,13 +12,17 @@ Project root: `D:\JYJ\USapp`. Environment: Windows PowerShell.
 - **The owner manually runs builds, tests, database operations, container operations, installations, browser checks, and Git operations.** Neither Claude Code nor Codex should execute these actions unless the owner explicitly grants additional authorization.
 - Commands in this document are references for the owner. Their presence does not authorize Claude Code to execute them.
 - The owner has delegated subsequent implementation to Claude Code. Do not ask again for permission to implement an explicitly assigned fix. Explain and obtain authorization before making out-of-scope architectural changes, database changes, dependency upgrades, or feature additions.
-- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. Git state is recorded as dated, owner-reported observations (Section 6): the initial baseline commit `b9cd0ea`, and later a push to a private GitHub repository at `9e00049a6f4b669897ef1172047c4eb8bbdd7a57`. Treat any hash as the state at the time it was reported. Changes made after the last owner-reported state are uncommitted unless the owner reports a new commit; do not claim otherwise.
+- Preserve existing work. Do not reset, overwrite, or revert changes unrelated to the assigned fix. Git state is recorded as dated, owner-reported observations (Section 6): the initial baseline commit `b9cd0ea`, later a push to a private GitHub repository at `9e00049a6f4b669897ef1172047c4eb8bbdd7a57`, and on 2026-10-09 the M2 commit `594a77bcadb0d2742c0704f93aea20cb09a1e726` pushed to `main`. Treat any hash as the state at the time it was reported. Changes made after the last owner-reported state are uncommitted unless the owner reports a new commit; do not claim otherwise.
 - Do not read the real `.env`. Do not disclose secrets, passwords, session cookies, plaintext verification codes, or invitation codes. Do not inspect database backups to obtain secrets.
 - Deliver actual file differences, the reasoning behind the fix, and its verification status. Distinguish "files modified," "statically reviewed," "build passed," "tests passed," and "real workflow verified." Another tool's completion report is not test evidence.
 - Give the owner one acceptance step at a time and wait for its result before proceeding. Retain essential errors rather than pasting lengthy logs.
 - All content handed to Claude Code must be written in English. Codex continues to communicate with the owner in Chinese.
 
-**Current objective (2026-10-09): owner Git review/commit/push after M2-B passed owner-run verification; see plan Section 9.19 and the later Section 6 verification entry below. Frozen 0006 is now applied to both usapp_test and the main database; startup policy passed on the main database. A separate formal M2 acceptance decision has not been recorded. Preserve the frozen checksum. Approved directions D1, D2 bounds only, D18, D19 and D21 remain unchanged. No wallet posting or M3-M10 is approved. The owner runs all commands; Claude Code should wait for the next explicitly assigned task.**
+**Current objective (2026-10-09): owner Git review/commit/push of Phase 1 milestone M3-A (task database foundation: migration 0007, init-roles section 8, task privilege policy, tests), approved by the owner on 2026-10-09, implemented by Claude Code, and passed the recorded owner-run verification on `usapp_test` (`docs/phase1-m3-design.md` Section 11.3; Section 6 below). No separate formal acceptance decision is recorded, and 0007 is not on the main database. Claude Code waits for the next assigned task. The owner confirmed the product decisions in that document's Section 2.3; M3-B and M3-C implementation are not approved, and D29, D30, D32, D33 and the remaining engineering details stay proposals. Background, the M3 design: The design was revised twice the same day after Codex reviews (revision 2: facts-only completion response, deadline decision point, real partial-failure and cap tests, pagination, corrected test-database reset, integrity triggers, frontend mutation guards, and a proposed lock-order refinement D30 of plan Section 9.8; revision 3: post-commit ledger-append integrity check, claim-first publish replay ordering, NULL-safe cursor pagination, exact deadline decision statement, and unknown-commit-outcome handling D35). M2 passed owner-run verification (plan Section 9.19) and was committed and pushed by the owner as `594a77b` on 2026-10-09 (Section 6; dated observation); a separate formal M2 acceptance decision has not been recorded. Frozen 0006 is applied to both usapp_test and the main database; preserve its checksum. Approved directions D1, D2 bounds only, D18, D19 and D21 remain unchanged. M3-A is implemented and owner-verified. Wallet posting, M3-B/M3-C and M4-M10 implementation remain unapproved. The owner runs all commands.**
+
+Historical note: earlier on 2026-10-09 the objective was owner verification of M3-A; that verification is recorded in Section 6.
+
+Historical note: until 2026-10-09 the objective was owner Git review/commit/push after M2-B verification; that step is recorded in Section 6.
 
 Historical note: before 2026-10-06 the objective was to complete Phase 0 acceptance; statements in Sections 2, 6, and 7 that Phase 0 was not yet accepted describe that earlier state.
 
@@ -392,6 +396,41 @@ This evidence update modifies only README.md, CLAUDE.md, docs/phase1-plan.md and
 this handoff. No code, contract, migration or deployment change; no build/test/
 database/container/Git command was executed by Codex or Claude Code.
 
+### Phase 1 M2 Git Publication (Owner-Reported, 2026-10-09; Dated Observation)
+
+- The owner committed and pushed M2-A and M2-B as `594a77bcadb0d2742c0704f93aea20cb09a1e726`, message `feat: add wallet ledger foundation and own balance display`.
+- Local `HEAD` and remote `main` matched; tracked files had no outstanding changes.
+- `.claude/`, `.workbuddy/`, `Claude outputs/` and the original V1 design document remained untracked.
+- A limited credential-pattern check over the staged files returned no matches (exit code 1). It is not a full-history secret scan.
+- Limits: owner-reported; Claude Code and Codex ran no Git commands. This describes the state on 2026-10-09 only; later Git state is not assumed. A commit or push is not an acceptance decision; M2 passed the recorded owner-run verification and no separate formal M2 acceptance decision has been recorded.
+
+### Phase 1 M3-A Approval and Implementation (2026-10-09; Verification Pending)
+
+- The owner approved M3-A on 2026-10-09 (task database foundation, reusable task privilege checking, regression tests, status documentation) and confirmed the product decisions recorded in `docs/phase1-m3-design.md` Section 2.3. M3-B and M3-C are not approved; no test-database reset or permanent cap fixture is authorized.
+- Claude Code added `database/migrations/0007_tasks_one_off.sql`, `init-roles.sql` section 8, `database/tests/task_ledger_test.sql`, `services/api/src/db/TaskPrivilegePolicy.h/.cc` (not wired into startup), `services/api/tests/TaskLedgerDbTests.h` (db_gated block 13; migration gate now requires 0007), unit and static cases (including a check that 0006 still has checksum `2633e17e...7d543d`), and `database/README.md` notes. Details, refinements (actual UT001-UT007 mapping), coverage, limits and owner steps: design Section 11.
+- Not changed: 0000-0006, init-roles section 7, wallet policy, API code, contract (still 0.3.0), frontend, `Db.h`/`Db.cc`, deployment, dependencies, `.claude/settings.json`.
+- Limits: files written only; Claude Code ran no build, test, database, container, package or Git command and executed no SQL. When written, verification had not been run. All successful fixtures are rollback-only; separate-transaction attacks on genuinely committed settlements remain an M3-C requirement.
+
+### Phase 1 M3-A Owner-Run Results on usapp_test (2026-10-09; Partial)
+
+- DryRun: 0000-0006 checksums matched; only 0007 pending. 0007 applied to `usapp_test` with `-InitRoles`, exit 0; applied checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`. 0007 is now applied and must never be edited.
+- Basic task/wallet permission query matched, exit 0. Repeated `-InitRoles`, exit 0.
+- Test image build exit 0. CTest: unit 0.02 s, db_gated 1.35 s (Passed, not skipped), static_check 0.01 s; total 1.38 s; all passed; exit 0.
+- `task_ledger_test.sql`: application and maintenance modes each passed 27 groups, ended with ROLLBACK, exit 0.
+- Wallet script repair (source review, no failed run observed): maintenance-mode E9 in `wallet_ledger_test.sql` now includes `task_completions` in the combined TRUNCATE when that table exists (no CASCADE; ledger table first; still expects UW001). Claude Code also predicted, from source review only, that maintenance-mode E8 would hit `55006` (pending trigger events from 0007's deferred ledger trigger); after authorization, maintenance mode now runs `SET CONSTRAINTS ALL IMMEDIATE` before E8, outside the expected-failure block (design Section 11.2). Both repairs are unverified until the owner runs the wallet script in both modes.
+- Pending when written: wallet script reruns in both modes, final `usapp_test` fixture checks. Both were later completed (next entry).
+
+### Phase 1 M3-A Owner-Run Verification Completed (2026-10-09)
+
+- Owner-run under Codex guidance; Claude Code ran none of these. Full record and limits: design Section 11.3.
+- DryRun: 0000-0006 checksums matched, only 0007 pending, exit 0. 0007 applied with `-InitRoles`, exit 0; frozen checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`.
+- Basic task/wallet permissions matched, exit 0; repeated permission initialization exit 0; test image build exit 0.
+- Full CTest: unit Passed 0.02 s; db_gated Passed 1.35 s, not skipped; static_check Passed 0.01 s; total 1.38 s; exit 0.
+- `task_ledger_test.sql`: both modes passed 27 groups each, ended with ROLLBACK, exit 0. Repaired `wallet_ledger_test.sql`: both modes passed 28 groups each, ended with ROLLBACK, exit 0. The E8/E9 compatibility repairs are now owner-run verified; their original issues were source-review predictions, not observed failed runs.
+- Final `usapp_test` query: tasks, completions, accounts, operations and entries all 0; users matching the `wallet_` or `task_psql_` prefixes 0; exit 0. This is not an all-fixture claim.
+- Limits: CTest preceded the E8/E9 script repairs and was not rerun afterwards; per-assertion counts and individual privilege-summary lines were not supplied; 0007 was not applied to the main database; task API/frontend, real settlement service, concurrency/replay tests and attacks on committed settlements are unverified (later stages); no test-database reset or permanent cap fixture was executed; no separate formal acceptance decision is recorded.
+- Next: owner Git review/commit/push. M3-B/M3-C implementation remains unapproved.
+
 ## 7. Known Issues and Outstanding Acceptance Work
 
 1. **Resolved: unauthenticated administrator reads.** Fixed, rebuilt, tested, and checked at runtime; see Section 2 for results and the limits of that evidence.
@@ -407,7 +446,8 @@ database/container/Git command was executed by Codex or Claude Code.
 
 - `CLAUDE.md` and `.claude/settings.json`: standing instructions and project permission rules for Claude Code. Read `CLAUDE.md` first; the permission rules deny commands the owner runs (Section 1) and reads of real environment files and `backups/`.
 - `docs/phase0-acceptance.md`: concise Phase 0 acceptance matrix derived from the evidence in this document; the owner accepted Phase 0 on 2026-10-06 as a local development baseline within its recorded scope and limitations.
-- `docs/phase1-plan.md`: Phase 1 scope, open product decisions, and milestones. M1 is approved, implemented, and owner-verified (Sections 7.8 and 7.9). M2-A and M2-B are approved and implemented, with owner-run verification recorded in Sections 9.14 and 9.19; a separate formal M2 decision and owner Git review remain pending. M3-M10 implementation is not approved.
+- `docs/phase1-plan.md`: Phase 1 scope, open product decisions, and milestones. M1 is approved, implemented, and owner-verified (Sections 7.8 and 7.9). M2-A and M2-B are approved and implemented, with owner-run verification recorded in Sections 9.14 and 9.19 and the owner's 2026-10-09 commit/push in Section 9.20; a separate formal M2 decision has not been recorded. M3-A is implemented and owner-verified (`docs/phase1-m3-design.md` Section 11.3); M3-B/M3-C and M4-M10 implementations remain unapproved.
+- `docs/phase1-m3-design.md`: M3 design (one-off tasks, single completion, reward settlement). Section 2.3 records the owner's 2026-10-09 decisions; Section 11 records the M3-A implementation, and Section 11.3 its completed owner-run verification. M3-B/M3-C not approved.
 - `contracts/openapi.yaml`: interface contract. Do not change it to allow unauthenticated list access.
 - `services/api/src/http/AdminFilter.cc`, `AdminFilter.h`, `controllers/AdminController.cc`, and `services/AdminAuthService.cc`: direct entry points for the administrator authentication fix (resolved; see Section 2); controller/service paths are relative to `services/api/src/`.
 - `services/api/tests/UnitTest.cc`, `DbGatedTest.cc`, `TestSupport.h`, `AdminFilterProbe.h`, and `CMakeLists.txt`: active tests and supporting mechanisms, all under `services/api/tests/`.
@@ -468,15 +508,19 @@ Also read CLAUDE.md, docs/phase0-acceptance.md, and docs/phase1-plan.md.
 
 The Section 2 administrator authentication fix and the HomeView label fix
 have been implemented and checked; do not redo them. Git state in the
-handoff is a dated observation (private GitHub push at 9e00049); later
-changes stay uncommitted until I report a new commit. Phase 0 was accepted
+handoff is a dated observation (latest: M2 commit 594a77b pushed on
+2026-10-09); later changes stay uncommitted until I report a new commit.
+Phase 0 was accepted
 on 2026-10-06 as a local development baseline, not as production-ready;
 its recorded limitations remain open. Phase 1 M1 (nickname editing) is
 implemented and passed my acceptance checks. M2-A passed my checks on
 usapp_test. I assigned M2-B directly to Codex; it is implemented and passed
-owner-run verification (plan Section 9.19). A separate formal M2 acceptance
-decision has not been recorded; owner Git review/commit/push is next. Wait for my next explicitly
-assigned task. M3-M10 are not approved. Do not redo either M2 milestone or
+owner-run verification (plan Section 9.19) and is committed/pushed. A
+separate formal M2 acceptance decision has not been recorded. M3-A (task
+database foundation) is implemented and passed my owner-run verification on
+usapp_test; Git review/commit/push is mine; M3-B/M3-C
+are not approved (docs/phase1-m3-design.md Sections 2.3 and 11.3). Wait for my next explicitly
+assigned task. M3-B/M3-C and M4-M10 implementation remain unapproved. Do not redo either M2 milestone or
 run any commands. The main database has received frozen 0006. Do not read the real .env, and
 preserve unrelated changes.
 

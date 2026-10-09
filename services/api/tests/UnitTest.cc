@@ -23,6 +23,7 @@
 #include "core/Crypto.h"
 #include "core/Errors.h"
 #include "db/Db.h"
+#include "db/TaskPrivilegePolicy.h"
 #include "db/WalletPrivilegePolicy.h"
 #include "db/WalletStartupCheck.h"
 #include "http/AdminFilter.h"
@@ -436,6 +437,124 @@ int main() {
         const std::string summary = widenedReport.summary();
         CHECK_CONTAINS(summary, "mismatches=1");
         CHECK_CONTAINS(summary, "wallet_ledger_entries");
+        CHECK_NOT_CONTAINS(summary, "postgresql://");
+        CHECK_NOT_CONTAINS(summary, "password");
+    }
+
+    // -----------------------------------------------------------------
+    // 5d. 任务表有效权限矩阵（阶段 1 M3-A）：纯函数，无数据库。
+    //     真实数据库上的检查见 DbGatedTest.cc / TaskLedgerDbTests.h。
+    // -----------------------------------------------------------------
+    TEST_CASE("TaskPrivilegePolicy: 只允许 SELECT/INSERT，任何列都不得 UPDATE，缺项与 NULL 不通过") {
+        using usapp::db::TaskPrivilegePolicy;
+        using usapp::db::WalletPrivilegePolicy;
+        using usapp::db::WalletPrivilegeRow;
+        using T = TaskPrivilegePolicy;
+
+        auto row = [](const std::string &kind, const std::string &subject, const std::string &object,
+                      const std::string &column, const std::string &privilege, std::optional<bool> actual) {
+            WalletPrivilegeRow r;
+            r.kind = kind;
+            r.subject = subject;
+            r.object = object;
+            r.column = column;
+            r.privilege = privilege;
+            r.actual = actual;
+            return r;
+        };
+
+        CHECK(T::expectedFor(row("table_privilege", "current", "tasks", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("table_privilege", "current", "task_completions", "", "INSERT", {})) == true);
+        for (const std::string priv : {"UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}) {
+            CHECK(T::expectedFor(row("table_privilege", "current", "tasks", "", priv, {})) == false);
+        }
+        CHECK(T::expectedFor(row("table_privilege", "public", "tasks", "", "SELECT", {})) == false);
+        CHECK(T::expectedFor(row("table_privilege", "usapp_push", "task_completions", "", "SELECT", {})) == false);
+        // 与钱包不同：任务表上任何列都没有 UPDATE（包括任意列汇总）。
+        CHECK(T::expectedFor(row("any_column_privilege", "current", "tasks", "", "UPDATE", {})) == false);
+        CHECK(T::expectedFor(row("any_column_privilege", "current", "tasks", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("column_privilege", "current", "tasks", "id", "UPDATE", {})) == false);
+        CHECK(T::expectedFor(row("column_privilege", "current", "task_completions", "completed_at", "UPDATE", {})) ==
+              false);
+        CHECK(T::expectedFor(row("identity", "current", "usapp_api", "", "is_app_role", {})) == true);
+        // 钱包表的行不属于任务矩阵。
+        CHECK_FALSE(T::expectedFor(row("table_privilege", "current", "wallet_accounts", "", "SELECT", {})).has_value());
+
+        std::vector<WalletPrivilegeRow> rows;
+        auto add = [&](WalletPrivilegeRow r) {
+            r.actual = T::expectedFor(r);
+            rows.push_back(r);
+        };
+        add(row("identity", "current", "usapp_api", "", "is_app_role", {}));
+        add(row("identity", "current", "", "", "rolsuper", {}));
+        add(row("identity", "current", "", "", "has_role_memberships", {}));
+        add(row("identity", "usapp_push", "", "", "role_exists", {}));
+        const std::vector<std::pair<std::string, std::vector<std::string>>> columns = {
+            {"tasks", {"id", "couple_id", "title", "deadline_at"}},
+            {"task_completions", {"task_id", "operation_id", "completed_at"}},
+        };
+        for (const auto &table : T::taskTables()) {
+            add(row("table", "current", table, "", "exists", {}));
+            add(row("table", "current", table, "", "owned_by_current_user", {}));
+            for (const auto &subject : WalletPrivilegePolicy::subjects()) {
+                for (const auto &priv : WalletPrivilegePolicy::tablePrivileges()) {
+                    add(row("table_privilege", subject, table, "", priv, {}));
+                }
+                for (const auto &priv : WalletPrivilegePolicy::anyColumnPrivileges()) {
+                    add(row("any_column_privilege", subject, table, "", priv, {}));
+                }
+            }
+        }
+        for (const auto &entry : columns) {
+            for (const auto &column : entry.second) {
+                for (const auto &subject : WalletPrivilegePolicy::subjects()) {
+                    add(row("column_privilege", subject, entry.first, column, "UPDATE", {}));
+                }
+            }
+        }
+        const auto good = T::evaluate(rows);
+        CHECK(good.ok());
+        CHECK(good.missing.empty());
+        CHECK_EQ(good.currentRole, std::string("usapp_api"));
+
+        // 重新执行 init-roles 若放宽为 UPDATE，必须被发现。
+        auto widened = rows;
+        for (auto &r : widened) {
+            if (r.kind == "table_privilege" && r.subject == "current" && r.object == "tasks" &&
+                r.privilege == "UPDATE") {
+                r.actual = true;
+            }
+        }
+        const auto widenedReport = T::evaluate(widened);
+        CHECK_FALSE(widenedReport.ok());
+        CHECK_EQ(widenedReport.mismatches().size(), 1u);
+
+        // 任一列被授予 UPDATE 也必须被发现。
+        auto columnWidened = rows;
+        for (auto &r : columnWidened) {
+            if (r.kind == "column_privilege" && r.subject == "current" && r.column == "completed_at") {
+                r.actual = true;
+            }
+        }
+        CHECK_FALSE(T::evaluate(columnWidened).ok());
+
+        // NULL 与缺项都不通过。
+        auto withNull = rows;
+        withNull[1].actual.reset();
+        CHECK_FALSE(T::evaluate(withNull).ok());
+        auto missingColumn = rows;
+        missingColumn.erase(std::remove_if(missingColumn.begin(), missingColumn.end(),
+                                           [](const WalletPrivilegeRow &r) {
+                                               return r.kind == "column_privilege" && r.column == "task_id";
+                                           }),
+                            missingColumn.end());
+        const auto missingReport = T::evaluate(missingColumn);
+        CHECK_FALSE(missingReport.ok());
+        CHECK_EQ(missingReport.missing.size(), 3u);  // 三个主体各缺一项
+
+        const std::string summary = T::summary(widenedReport);
+        CHECK_CONTAINS(summary, "task privilege policy:");
+        CHECK_CONTAINS(summary, "mismatches=1");
         CHECK_NOT_CONTAINS(summary, "postgresql://");
         CHECK_NOT_CONTAINS(summary, "password");
     }

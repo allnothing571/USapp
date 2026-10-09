@@ -13,6 +13,8 @@
 --   2) 以维护角色（超级用户）运行：权限不再是屏障，验证触发器本身。
 --      UPDATE / DELETE 期望 UW001；单独 TRUNCATE 流水表、以及三表一起 TRUNCATE 期望 UW001
 --      （单独 TRUNCATE 账户表或操作表会先因外键引用失败，不能证明触发器，所以不这样测）。
+--      0007 应用后，三表 TRUNCATE 额外显式列入引用 wallet_operations 的 task_completions
+--      （不用 CASCADE），流水表仍排第一，期望仍是 UW001。
 --   其他身份一律拒绝运行。
 --
 -- 约定：
@@ -509,6 +511,14 @@ BEGIN
     END;
     n_passed := n_passed + 1;
 
+    -- 0007 起 wallet_ledger_entries 上有延迟约束触发器：D6 顶层插入的流水留有待触发事件，
+    -- 维护角色直接 TRUNCATE 会先报 55006，无法验证只追加触发器的 UW001。
+    -- 先让延迟检查立即执行。放在预期失败子块之外：夹具不合法必须直接使整个测试失败。
+    -- 应用角色不需要：权限检查（42501）先于待触发事件检查。
+    IF NOT is_app THEN
+        SET CONSTRAINTS ALL IMMEDIATE;
+    END IF;
+
     BEGIN  -- E8 TRUNCATE 流水
         TRUNCATE wallet_ledger_entries;
         RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'E8 失败：意外成功';
@@ -543,8 +553,16 @@ BEGIN
         -- 否则 TRUNCATE 会先报 55006，无法验证只追加触发器的 UW001。
         -- 放在预期失败子块之外：夹具检查失败必须直接使整个测试失败。
         SET CONSTRAINTS ALL IMMEDIATE;
-        BEGIN  -- E9 维护角色：三表一起 TRUNCATE（外键检查通过后由触发器拒绝）
-            TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts;
+        BEGIN  -- E9 维护角色：钱包三表一起 TRUNCATE（外键检查通过后由触发器拒绝）
+            -- 0007 起 task_completions 有外键引用 wallet_operations：不把它列入同一条 TRUNCATE，
+            -- 外键检查会先失败（0A000），无法证明只追加触发器。存在时显式列在钱包三表之后
+            -- （不使用 CASCADE）；wallet_ledger_entries 仍排第一，期望的拒绝仍是 UW001。
+            -- 只有执行到的分支才会被规划，所以 0007 未应用时不会引用不存在的表。
+            IF to_regclass('public.task_completions') IS NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts;
+            ELSE
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions;
+            END IF;
             RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'E9 失败：意外成功';
         EXCEPTION
             WHEN SQLSTATE 'UWT00' THEN RAISE;

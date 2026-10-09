@@ -26,6 +26,7 @@
 #include <string>
 
 #include "TestSupport.h"
+#include "core/Crypto.h"
 
 namespace {
 
@@ -262,6 +263,86 @@ int main() {
             CHECK_ORDER(mainBody, "checkWalletPrivilegesForStartup(", "startScheduler()");
             CHECK_ORDER(mainBody, "checkWalletPrivilegesForStartup(", "drogon::app().run()");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // 4. 阶段 1 M3-A：0007_tasks_one_off、init-roles 第 8 节、0006 冻结、范围边界（静态文本断言）
+    // -----------------------------------------------------------------
+    TEST_CASE("StaticCheck: M3-A 0007 tasks migration, grants, frozen 0006 and scope boundaries") {
+        usapptest::noteStaticAssertion("（文本/校验和检查，不是运行时验证；运行时见 db_gated 任务用例）");
+        const auto migDir = repoRoot / "database" / "migrations";
+
+        // 0006 已在 usapp_test 与主库应用，字节必须保持不变（与 apply.ps1 的 SHA-256 一致）。
+        const std::string walletMigration = readFileContent(migDir / "0006_wallet_ledger.sql");
+        CHECK_FALSE(walletMigration.empty());
+        CHECK_EQ(usapp::crypto::sha256Hex(walletMigration),
+                 std::string("2633e17ea6ff6e664832df84023d1fab8aa9513b4cfe48786c4ca093bc7d543d"));
+
+        const std::string taskSql = readFileContent(migDir / "0007_tasks_one_off.sql");
+        CHECK_FALSE(taskSql.empty());
+        CHECK_CONTAINS(taskSql, "CREATE TABLE tasks");
+        CHECK_CONTAINS(taskSql, "CREATE TABLE task_completions");
+        CHECK_CONTAINS(taskSql, "CONSTRAINT tasks_reward_positive CHECK (reward_flowers > 0 OR reward_sunshine > 0)");
+        CHECK_CONTAINS(taskSql, "CHECK (reward_flowers BETWEEN 0 AND 999)");
+        CHECK_CONTAINS(taskSql, "CHECK (reward_sunshine BETWEEN 0 AND 100000)");
+        CHECK_CONTAINS(taskSql, "CONSTRAINT tasks_timezone_supported CHECK (timezone = 'Asia/Shanghai')");
+        CHECK_CONTAINS(taskSql, "CONSTRAINT tasks_create_key_unique UNIQUE (creator_id, create_idempotency_key)");
+        CHECK_CONTAINS(taskSql, "CONSTRAINT task_completions_operation_unique UNIQUE (operation_id)");
+        CHECK_CONTAINS(taskSql, "BEFORE UPDATE OR DELETE OR TRUNCATE ON tasks");
+        CHECK_CONTAINS(taskSql, "BEFORE UPDATE OR DELETE OR TRUNCATE ON task_completions");
+        CHECK_CONTAINS(taskSql, "CREATE TRIGGER task_completions_guard");
+        CHECK_CONTAINS(taskSql, "CREATE FUNCTION usapp_task_settlement_validate(p_operation_id uuid)");
+        CHECK_CONTAINS(taskSql, "CREATE CONSTRAINT TRIGGER task_completions_settlement_valid");
+        CHECK_CONTAINS(taskSql, "CREATE CONSTRAINT TRIGGER wallet_operations_task_settlement_valid");
+        CHECK_CONTAINS(taskSql, "WHEN (NEW.source_type = 'task')");
+        CHECK_CONTAINS(taskSql, "CREATE CONSTRAINT TRIGGER wallet_ledger_entries_task_settlement_valid");
+        CHECK_CONTAINS(taskSql, "GRANT SELECT, INSERT ON tasks, task_completions TO usapp_api;");
+        // 不设发布时截止时间必须在未来的数据库规则（重放先于时间校验，设计第 4.2 节）。
+        CHECK_NOT_CONTAINS(taskSql, "deadline_at > now()");
+        CHECK_NOT_CONTAINS(taskSql, "deadline_at > clock_timestamp()");
+        // 不写入数据、不放宽钱包表、不绕过保护。
+        CHECK_NOT_CONTAINS(taskSql, "INSERT INTO");
+        CHECK_NOT_CONTAINS(taskSql, "GRANT UPDATE");
+        CHECK_NOT_CONTAINS(taskSql, "GRANT DELETE");
+        CHECK_NOT_CONTAINS(taskSql, "GRANT ALL");
+        CHECK_NOT_CONTAINS(taskSql, "ON wallet_accounts TO");
+        CHECK_NOT_CONTAINS(taskSql, "DROP ");
+        CHECK_NOT_CONTAINS(taskSql, "ALTER TABLE wallet_");
+        CHECK_NOT_CONTAINS(taskSql, "DISABLE TRIGGER");
+        CHECK_NOT_CONTAINS(taskSql, "SECURITY DEFINER");
+
+        const std::string initRoles = readFileContent(repoRoot / "database" / "init-roles.sql");
+        CHECK_FALSE(initRoles.empty());
+        CHECK_ORDER(initRoles, "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO usapp_api;",
+                    "DO $task_grants$");
+        CHECK_ORDER(initRoles, "DO $wallet_grants$", "DO $task_grants$");
+        CHECK_CONTAINS(initRoles, "ARRAY['tasks', 'task_completions']");
+        CHECK_CONTAINS(initRoles, "EXECUTE format('GRANT SELECT, INSERT ON public.%I TO usapp_api', task_table);");
+
+        const std::string dbGated = readFileContent(repoRoot / "services" / "api" / "tests" / "DbGatedTest.cc");
+        CHECK_CONTAINS(dbGated, "\"0007_tasks_one_off\"");
+        CHECK_ORDER(dbGated, "SELECT current_database()::text AS name", "runTaskLedgerDbTests(");
+
+        const std::string script = readFileContent(repoRoot / "database" / "tests" / "task_ledger_test.sql");
+        CHECK_FALSE(script.empty());
+        const std::string sqlGuard = "IF current_database() IS DISTINCT FROM 'usapp_test' THEN";
+        CHECK_ORDER(script, "\\set ON_ERROR_STOP on", "BEGIN;");
+        CHECK_ORDER(script, "BEGIN;", sqlGuard);
+        CHECK_ORDER(script, sqlGuard, "INSERT INTO");
+        CHECK_NOT_CONTAINS(script, "COMMIT;");
+        CHECK_NOT_CONTAINS(script, "DISABLE TRIGGER");
+        const auto lastRollback = script.rfind("ROLLBACK;");
+        CHECK(lastRollback != std::string::npos);
+        if (lastRollback != std::string::npos) {
+            CHECK(script.find_first_not_of(" \t\r\n", lastRollback + 9) == std::string::npos);
+        }
+
+        // M3-A 范围边界：不接入启动、不改契约版本、不新增任务接口。
+        const std::string entry = readFileContent(repoRoot / "services" / "api" / "src" / "main.cc");
+        CHECK_NOT_CONTAINS(entry, "TaskPrivilegePolicy");
+        const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
+        CHECK_CONTAINS(contract, "version: 0.3.0");
+        CHECK_NOT_CONTAINS(contract, "/api/v1/tasks");
     }
 
     return usapptest::finish();

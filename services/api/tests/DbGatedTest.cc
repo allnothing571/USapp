@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "TaskLedgerDbTests.h"
 #include "TestDatabaseGuard.h"
 #include "TestSupport.h"
 #include "WalletLedgerDbTests.h"
@@ -124,7 +125,8 @@ int main() {
         "0003_couple_binding",
         "0004_scheduler",
         "0005_admin_audit",
-        "0006_wallet_ledger"
+        "0006_wallet_ledger",
+        "0007_tasks_one_off"
     };
 
     try {
@@ -1737,6 +1739,10 @@ int main() {
 
     // 12. M2-B: real read service and its SQL, with no committed wallet data.
     usapptest::wallet::runWalletReadDbTests(client, dsn);
+
+    // 13. M3-A：任务表约束、只追加、权限矩阵与任务结算一致性（见 TaskLedgerDbTests.h）。
+    //     成功夹具只存在于回滚事务内；已提交结算上的跨事务攻击属于 M3-C。
+    usapptest::task::runTaskLedgerDbTests(client, dsn);
 
     return usapptest::finish();
 }

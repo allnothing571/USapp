@@ -72,3 +72,26 @@ BEGIN
     END IF;
 END
 $wallet_grants$;
+
+-- 8. 任务表权限收窄（阶段 1 M3-A；必须位于第 5 节 ALL TABLES 授权之后；可重复执行）
+--    恢复 0007_tasks_one_off 设定的有效权限矩阵：
+--      usapp_api : tasks、task_completions 仅 SELECT, INSERT（无 UPDATE / DELETE / TRUNCATE，
+--                  也没有任何列级 UPDATE：任务表从不加行锁）
+--      usapp_push / PUBLIC : 无任何权限
+--    表级 REVOKE 会同时收回列级权限。任务表尚不存在（0007 未应用）时逐表跳过。
+--    第 7 节（钱包表）保持不变。
+DO $task_grants$
+DECLARE
+    task_table text;
+BEGIN
+    FOREACH task_table IN ARRAY ARRAY['tasks', 'task_completions']
+    LOOP
+        IF to_regclass('public.' || task_table) IS NOT NULL THEN
+            EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC', task_table);
+            EXECUTE format('REVOKE ALL ON public.%I FROM usapp_api', task_table);
+            EXECUTE format('REVOKE ALL ON public.%I FROM usapp_push', task_table);
+            EXECUTE format('GRANT SELECT, INSERT ON public.%I TO usapp_api', task_table);
+        END IF;
+    END LOOP;
+END
+$task_grants$;

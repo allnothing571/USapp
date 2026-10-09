@@ -1,11 +1,12 @@
 # USapp Phase 1 Plan: Couple Core Loop
 
-Status (updated 2026-10-09, Asia/Shanghai):
+Status (updated 2026-10-09, Asia/Shanghai; M2 Git publication recorded in Section 9.20):
 
 - **M1 (nickname): approved, implemented, and owner-run acceptance checks completed successfully on 2026-10-06.** Implementation status is in Section 7.8; the owner's verification evidence and its limits are in Section 7.9. The approval covered M1 only, including the additive `PATCH /api/v1/me` operation and OpenAPI `info.version` 0.2.0.
 - **M2 (wallet/ledger):** design in Section 9, with owner-approved directions D1, D2 (balance and per-entry bounds only), D18, D19, and D21 (2026-10-06). M2 is split:
   - **M2-A (database foundation): approved and implemented 2026-10-07; owner-run verification on `usapp_test` passed 2026-10-07 (Section 9.14).** The owner also applied frozen 0006 to the main database during M2-B rollout (Section 9.19). Claude Code itself built, tested, or executed none of it.
-  - **M2-B (read endpoint, API startup privilege check, home display): owner-authorized for direct Codex implementation on 2026-10-07; implemented and passed owner-run verification (Section 9.19, updated 2026-10-09).** A separate formal M2 acceptance decision has not been recorded; owner Git review/commit/push remains pending.
+  - **M2-B (read endpoint, API startup privilege check, home display): owner-authorized for direct Codex implementation on 2026-10-07; implemented and passed owner-run verification (Section 9.19, updated 2026-10-09).** A separate formal M2 acceptance decision has not been recorded. The owner committed and pushed M2-A/M2-B on 2026-10-09 (Section 9.20, dated observation).
+- **M3 (one-off tasks with single completion and reward settlement): design in [docs/phase1-m3-design.md](phase1-m3-design.md) (revision 3). On 2026-10-09 the owner approved M3-A (task database foundation) and confirmed the product decisions listed in that document's Section 2.3 (D5, D5a, D5b, D5c, D6, D7, D8, D20, D22, D22a, D23, D24, D24a, D25, D26, D27, D28, D31, D34, D35). M3-A is implemented by Claude Code and passed the recorded owner-run verification on `usapp_test` on 2026-10-09 (0007 applied there with checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`; CTest, task SQL script and repaired wallet SQL script passed in the recorded modes; final fixture query passed; design Section 11.3, with limits). 0007 is not on the main database; no separate formal acceptance decision is recorded; owner Git review/commit/push is next. M3-B and M3-C implementation are not approved; D29, D30, D32, D33 and the remaining engineering details stay proposals.**
 - **M3-M10: not approved.** Their proposed defaults in Section 4 are not approved either. M2-A schema/policy/tests and M2-B read/startup/frontend files exist; M3-M10 remain proposals.
 - Claude Code has not built, tested, or verified anything in this document; all verification results are owner-run and recorded as such.
 
@@ -113,6 +114,8 @@ Each item needs an owner answer before the milestone listed. "Proposed" is a sug
 | D19 | Admin visibility of Phase 1 asset data. | **Approved direction (2026-10-06):** no new administrator asset endpoints in M2. | M2 |
 | D20 | Duplicate-submission protection for completion and redemption. | Client sends an `Idempotency-Key` header; the server stores it with a unique constraint so a retried request cannot settle twice. Scope refined in Section 9.6. | M3 |
 | D21 | Can a member see the partner's balances? V1 Sec 19 shows only one's own assets on the home page. | **Approved direction (2026-10-06):** M2 displays only the caller's own balances; revisit with M10 if needed. | M2 |
+
+M3-specific refinements of D5 and D20, and new proposals D5c and D22-D35 (reward ranges, zero rewards, title/description limits, completion authority and repeat behaviour, publish idempotency, task grants, cap rejection, paginated listing, test-database reset, completion lock order, completion response content, partial-failure test seam, cap fixture, completion-to-settlement integrity, unknown commit outcomes), are in [docs/phase1-m3-design.md](phase1-m3-design.md) Section 2.2; the owner's 2026-10-09 confirmations are recorded in its Section 2.3, and the rest stay proposals. D30 is a proposed M3 refinement of Section 9.8's lock order (no task-row lock; the business-source claim serializes completions); Section 9.8 stays binding unless the owner approves D30.
 
 ## 5. Proposed Data Model (Sketch)
 
@@ -927,3 +930,20 @@ Remaining limits:
   was not separately checked. A read can touch session last_seen_at via AuthFilter.
 - Fresh backup not restore-tested; no offsite copy claim. No current Git state or
   commit/push is inferred from runtime checks. M3-M10 remain unapproved.
+
+### 9.20 M2 Git publication (owner-reported, 2026-10-09; dated observation)
+
+- The owner committed and pushed M2-A and M2-B as
+  `594a77bcadb0d2742c0704f93aea20cb09a1e726` with the message
+  `feat: add wallet ledger foundation and own balance display`.
+- Local `HEAD` and remote `main` matched; tracked files had no outstanding changes.
+- `.claude/`, `.workbuddy/`, `Claude outputs/` and the original V1 design document
+  remained untracked.
+- A limited credential-pattern check over the staged files returned no matches
+  (exit code 1, meaning no match). As before, this is not a full-history secret scan.
+- This is a dated observation, not a claim about later Git state; Claude Code and
+  Codex ran no Git commands. A commit or push is not an acceptance decision: M2
+  passed the recorded owner-run verification, and no separate formal M2 acceptance
+  decision has been recorded.
+- This supersedes the "Git review/commit/push pending" statements in Sections 9.19
+  and the status header, which describe the state before 2026-10-09.
