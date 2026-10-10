@@ -97,6 +97,61 @@ export interface WalletResponse {
   wallet: Wallet
 }
 
+/** 任务视图（`listTasks` 的 `view` 参数，M3-B）。 */
+export type TaskView = 'open' | 'history'
+
+/** 任务状态由服务端按读取时刻推导；M3-B 没有完成接口。 */
+export type TaskStatus = 'open' | 'completed' | 'expired'
+
+/** `#/components/schemas/TaskDeadlineInput`：Asia/Shanghai 本地日期与可选的 HH:MM。 */
+export interface TaskDeadlineInput {
+  local_date: string
+  local_time?: string | null
+}
+
+/** `#/components/schemas/TaskDeadline` */
+export interface TaskDeadline {
+  local_date: string
+  local_time: string | null
+  /** 截止时刻（不含），UTC。 */
+  at: IsoDateTime
+}
+
+/** `#/components/schemas/Task` */
+export interface Task {
+  id: Uuid
+  title: string
+  description: string
+  creator_id: Uuid
+  assignee_id: Uuid
+  reward_flowers: number
+  reward_sunshine: number
+  deadline: TaskDeadline | null
+  status: TaskStatus
+  completed_at: IsoDateTime | null
+  created_at: IsoDateTime
+}
+
+/** `#/components/schemas/CreateTaskRequest`：没有接收者字段，接收者由服务端推导。 */
+export interface CreateTaskRequest {
+  title: string
+  description?: string
+  reward_flowers: number
+  reward_sunshine: number
+  deadline?: TaskDeadlineInput | null
+}
+
+/** `#/components/schemas/TaskResponse` */
+export interface TaskResponse {
+  task: Task
+}
+
+/** `#/components/schemas/TaskListResponse` */
+export interface TaskListResponse {
+  tasks: Task[]
+  next_cursor: string | null
+}
+
 /** `#/components/schemas/InviteResponse` */
 export interface InviteResponse {
   invite: CreatedInvite
@@ -127,6 +182,10 @@ export type ServerErrorCode =
   | 'ALREADY_IN_SPACE'
   | 'NOT_FOUND'
   | 'INTERNAL_ERROR'
+  | 'TASK_NOT_FOUND'
+  | 'PARTNER_REQUIRED'
+  | 'IDEMPOTENCY_KEY_REUSED'
+  | 'RESULT_UNKNOWN'
 
 /** `#/components/schemas/ErrorEnvelope` */
 export interface ErrorEnvelope {

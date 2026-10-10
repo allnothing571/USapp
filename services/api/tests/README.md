@@ -17,6 +17,19 @@
 
 框架支撑：`TestSupport.h`（轻量级零外部依赖断言库，支持 `CHECK`、`CHECK_EQ`、`CHECK_CONTAINS`、`finish()` 及门控退出码 `skip()`）。
 
+> **阶段 1 补充说明（2026-10-09）**：上表的用例数是阶段 0 的历史记录，未随后续里程碑更新。
+> 阶段 1 起新增：M1 昵称、M2-A/M2-B 钱包（`WalletLedgerDbTests.h`、`WalletReadDbTests.h`）、
+> M3-A 任务表（`TaskLedgerDbTests.h`，只回滚）与 M3-B 任务发布与读取：
+> - `TaskServiceUnitTests.h`（由 `UnitTest.cc` 调用）：标题/描述规范化、请求体白名单、指纹、游标编解码与拒绝、
+>   limit、结果映射、启动判定。
+> - `TaskServiceDbTests.h`（`DbGatedTest.cc` 第 14 块，在 `current_database() = 'usapp_test'` 守卫之后）：真实
+>   `TaskService` 的发布、同事务审计、重放与键复用、同键并发、持有发布者（提交 / 回滚）、分页、访问控制、
+>   需要完成记录的历史视图（只回滚）、回调生命周期与启动检查。
+> - **已提交夹具**：M3-B 用例按负责人批准，每次运行在 `usapp_test` 中提交随机标识、`@m3-fixture.test` 域名的
+>   用户、空间、任务与审计行（不含钱包行），它们永久保留（任务表只追加），断言只针对本次标识。
+>   与下文第 2 节第 4 条“用例完成后清理”的阶段 0 做法不同。
+> - 这些测试只编写、**尚未运行**；结果以负责人执行的记录为准。
+
 ---
 
 ## 2. 数据库门控（USAPP_TEST_DSN）机制

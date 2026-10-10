@@ -14,7 +14,7 @@
 //
 // 复用 WalletPrivilegeRow / WalletPrivilegeCheck / WalletPrivilegeReport 的数据形状与
 // WalletPrivilegePolicy 的 rowsFromResult / safeName；钱包检查本身不做任何改动。
-// 本阶段只供测试使用；接入 API 启动检查属于 M3-B。
+// M3-A 起供测试使用；M3-B 起 API 启动时经 TaskStartupCheck 复用同一实现（钱包检查之后）。
 // 输出只含角色名、表名、列名、权限名与布尔值：从不包含连接串、口令或任何密钥。
 // =====================================================================
 #pragma once

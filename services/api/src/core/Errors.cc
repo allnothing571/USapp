@@ -37,6 +37,14 @@ const char *errorCodeToString(ErrorCode code) {
             return "NOT_FOUND";
         case ErrorCode::InternalError:
             return "INTERNAL_ERROR";
+        case ErrorCode::TaskNotFound:
+            return "TASK_NOT_FOUND";
+        case ErrorCode::PartnerRequired:
+            return "PARTNER_REQUIRED";
+        case ErrorCode::IdempotencyKeyReused:
+            return "IDEMPOTENCY_KEY_REUSED";
+        case ErrorCode::ResultUnknown:
+            return "RESULT_UNKNOWN";
     }
     return "INTERNAL_ERROR";
 }
@@ -73,6 +81,14 @@ int defaultStatusFor(ErrorCode code) {
             return 404;
         case ErrorCode::InternalError:
             return 500;
+        case ErrorCode::TaskNotFound:
+            return 404;
+        case ErrorCode::PartnerRequired:
+            return 409;
+        case ErrorCode::IdempotencyKeyReused:
+            return 409;
+        case ErrorCode::ResultUnknown:
+            return 503;
     }
     return 500;
 }

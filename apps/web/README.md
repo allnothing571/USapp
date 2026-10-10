@@ -36,6 +36,11 @@ pnpm test:watch       # vitest
 - 所有写请求（POST/PUT/PATCH/DELETE）自动带 `X-CSRF-Token`；取不到令牌时**先抛错、不发请求**。
 - 离线（`navigator.onLine === false`）时任何非 GET 请求直接抛 `OfflineMutationBlockedError`，绝不发出业务写请求。
 - API 响应一律 `Cache-Control: no-store`；前端不持久化任何情侣业务数据（无 persist 插件、无 IndexedDB 业务缓存）。
+- 任务页（阶段 1 M3-B，`/tasks`，已实现、尚未验证）：发布请求带 `Idempotency-Key`，键只在内存中；
+  结果未确认（网络错误、5xx、503 `RESULT_UNKNOWN`）时由用户点击重试，复用同一个键，不会重复发布；
+  从不自动重放写请求。注销或切换账号时任务 store 与未完成的键一并清空，晚到的响应被丢弃。
+  完成任务与奖励结算属于 M3-C，页面上没有完成按钮。
+- `dist/` 以绑定挂载方式由 Caddy 直接提供：`pnpm build` 会立即替换线上文件，只应在后端已就绪后执行。
 
 ## PWA 缓存策略
 

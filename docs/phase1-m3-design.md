@@ -1,6 +1,6 @@
 # USapp Phase 1 M3 Design: One-Off Tasks with Single Completion and Reward Settlement
 
-Status (updated 2026-10-09): **M3-A (database foundation) approved by the owner, implemented by Claude Code, and passed the recorded owner-run verification on `usapp_test` (Section 11.3); no separate formal acceptance decision is recorded, 0007 is not on the main database, and owner Git review/commit/push is next. M3-B and M3-C implementation are NOT approved.** The owner confirmed the product decisions listed in Section 2.3; all other items remain proposals. Original status: design only, written 2026-10-09 and revised the same day after two Codex reviews (revision 3), Asia/Shanghai. Every "proposal" or "recommendation" below is a suggestion, not an owner decision. Nothing in this document exists in the repository, and nothing has been built, tested, or executed.
+Status (updated 2026-10-10): **M3-A (database foundation) approved by the owner, implemented by Claude Code, and passed the recorded owner-run verification on `usapp_test` (Section 11.3); the owner committed and pushed it as `6a9da4b` (Section 12.1; dated observation); no separate formal acceptance decision is recorded. M3-B (publication and read APIs, task UI, task startup enforcement) was approved by the owner on 2026-10-09, implemented by Claude Code, and on 2026-10-10 passed the recorded owner-run checks; 0007 is now applied to the main database and the M3-B runtime and web build are deployed there (Section 12.9). No separate formal M3-B acceptance decision is recorded, and no M3-B commit or push has been reported; owner Git review/commit/push is next. M3-C implementation is NOT approved.** The owner confirmed the product decisions listed in Section 2.3; all other items remain proposals. Original status: design only, written 2026-10-09 and revised the same day after two Codex reviews (revision 3), Asia/Shanghai. Every "proposal" or "recommendation" below is a suggestion, not an owner decision. At the original design stage, M3 implementation and verification were pending; the current stage-specific status and subsequent evidence are recorded above and in Sections 11-12.
 
 Inputs read for this design: `CLAUDE.md`, `docs/claude-code-handoff.md`, `docs/phase1-plan.md` (Sections 4, 9.7-9.10, 9.13-9.20), `database/migrations/0006_wallet_ledger.sql`, `database/init-roles.sql`, `database/apply.ps1`, `contracts/openapi.yaml` (0.3.0), `services/api/src/core/Errors.*`, `services/api/src/db/Db.h`, `services/api/src/db/WalletPrivilegePolicy.*`, `services/api/src/services/WalletService.cc`, `ProfileService.cc`, `services/api/src/main.cc`, the `apps/web` stores, API client, and test file list. All reads were read-only.
 
@@ -591,3 +591,168 @@ Limits:
 - No separate formal acceptance decision has been recorded.
 
 Current status: M3-A passed the recorded owner-run verification; owner Git review/commit/push is next. M3-B and M3-C implementation remain unapproved.
+
+Later on 2026-10-09: the owner committed and pushed M3-A (Section 12.1) and approved M3-B; Section 12 records the M3-B implementation. The "Current status" line above describes the state before that.
+
+## 12. M3-B implementation status (2026-10-09): implemented; passed the recorded owner-run checks on 2026-10-10 (Section 12.9)
+
+Approved by the owner on 2026-10-09: one-off task publication and read APIs, the task list and publication UI, task privilege enforcement at API startup, and per-run isolated committed task fixtures for M3-B tests (random identifiers, reserved test domain, assertions scoped to those identifiers; successful committed fixtures may contain tasks and their non-wallet parents). **M3-C and M4-M10 are not approved.** No new migration is authorized; 0006 (`2633e17e...7d543d`) and 0007 (`a9c680a0...556161`) are frozen and unchanged. **Claude Code built, tested, and executed nothing.** When Sections 12.1-12.8 were written, verification had not been run; the owner-run results are in Section 12.9. No separate formal acceptance decision is recorded.
+
+### 12.1 Dated Git observation (owner-reported, 2026-10-09)
+
+- M3-A was committed and pushed as `6a9da4bd31e4f2b7863501c39e70931fadd5a6e2` ("feat: add one-off task database foundation").
+- Local HEAD matched remote `main`; no outstanding tracked-file changes.
+- The existing local tooling/output folders and the V1 design document remained untracked.
+- A limited staged credential-pattern check had no matches (exit 1). It is not a full-history secret scan.
+- Dated observation only; later Git state is not assumed. A commit is not an acceptance decision, and no formal M3-A acceptance decision is recorded.
+
+### 12.2 Files
+
+New:
+
+- `services/api/src/services/TaskService.h/.cc`: pure validation (title, description, rewards, deadline shape, Idempotency-Key, limit), fingerprint, cursor codec, production SQL texts, the claim-first publish transaction, list and get.
+- `services/api/src/controllers/TaskController.cc`: `POST /api/v1/tasks`, `GET /api/v1/tasks`, `GET /api/v1/tasks/{taskId}`, all behind `AuthFilter`.
+- `services/api/src/db/TaskStartupCheck.h/.cc`: bounded (10 s) startup check using `TaskPrivilegePolicy`.
+- `services/api/tests/TaskServiceUnitTests.h` (called from `UnitTest.cc`) and `services/api/tests/TaskServiceDbTests.h` (db_gated block 14).
+- `apps/web/src/api/tasks.ts`, `apps/web/src/api/task-rules.ts`, `apps/web/src/stores/tasks.ts`, `apps/web/src/views/TasksView.vue`; web specs `tasks-client.spec.ts`, `tasks-store.spec.ts`, `tasks-view.spec.ts`.
+
+Modified: `contracts/openapi.yaml` (0.4.0, additive); `services/api/src/core/Errors.h/.cc` (four codes); `services/api/src/main.cc` (task startup check after the wallet check); `services/api/CMakeLists.txt` (controller); `services/api/src/db/TaskPrivilegePolicy.h` (comment only); `services/api/tests/UnitTest.cc`, `DbGatedTest.cc`, `StaticCheckTest.cc`; `apps/web/src/api/types.ts`, `error-messages.ts`, `stores/session.ts`, `router/index.ts`, `views/HomeView.vue`; documentation.
+
+Not modified: migrations 0000-0007, `init-roles.sql`, grants, `Db.h`/`Db.cc`, `WalletPrivilegePolicy`, `WalletStartupCheck`, wallet service/controller, deployment files, dependencies, `.claude/settings.json`, the database psql scripts.
+
+### 12.3 Implementation refinements (review these)
+
+1. **Request body** (`CreateTaskRequest`): exactly `title`, optional `description` (string; `null` is rejected), `reward_flowers`, `reward_sunshine`, optional `deadline` (object or `null`). Any other field, including `assignee_id`, `couple_id`, `creator_id`, is 400. Rewards must be JSON integers (`1.0`, `1e2`, strings, booleans and `null` are rejected).
+2. **Deadline input**: `local_date` `YYYY-MM-DD`, a valid calendar date in years 1970-9998 (the next local midnight stays a four-digit year); optional `local_time` `HH:MM` (00:00-23:59) or `null`. Seconds are not accepted. Time without a date is rejected.
+3. **Text rules**: strict UTF-8 decoding on the server (overlong forms, surrogates, values above U+10FFFF and truncated sequences rejected). Title: C0 (including tab, LF, CR), DEL, C1, U+2028, U+2029 rejected anywhere; leading/trailing Unicode Zs trimmed; 1-40 code points. Description: CRLF becomes LF first; then a lone CR and every control character other than LF (including tab) are rejected; leading/trailing Zs **and LF** are trimmed; at most 500 code points. Raw byte guards: 1 KiB title, 8 KiB description.
+4. **Idempotency-Key**: required header, 16-128 characters from `[A-Za-z0-9_-]`; missing or malformed is 400 before the body is validated.
+5. **Fingerprint**: lowercase SHA-256 of `create-task:v1:` followed by `name=<byte length>:<value>;` for `title`, `description`, `reward_flowers`, `reward_sunshine`, `deadline_local_date`, `deadline_local_time` in that order (empty string when absent), using the normalized values.
+6. **Membership step**: one statement reads the caller's `couple_members` row `FOR SHARE OF m` and the partner (the other member, ordered by slot). No row: 404 `SPACE_NOT_FOUND`; no partner: 409 `PARTNER_REQUIRED`.
+7. **Claim**: `INSERT ... SELECT ... ON CONFLICT (creator_id, create_idempotency_key) DO NOTHING RETURNING id, (deadline_at IS NULL OR deadline_at > clock_timestamp()) AS deadline_in_future`, with `deadline_at` computed by the same expression as 0007's consistency CHECK. No row: the committed row for `(creator, key)` is read; same fingerprint is a replay (rolled back, 200 semantics, no deadline rule, any status), a different fingerprint is 409 `IDEMPOTENCY_KEY_REUSED`, no row is 500. A returned row whose deadline is not in the future is rolled back with 400. The key scope is the publisher, so the partner reusing the same key value creates its own task.
+8. **Audit**: `task.created`, actor = publisher, couple, target = task id, detail `{"reward_flowers", "reward_sunshine", "has_deadline"}` only; no title or description text. The response task is read back inside the same transaction before COMMIT; `Created` is reported only from the commit callback.
+9. **RESULT_UNKNOWN and error details**: a `commitRequested` flag is set immediately before `TxScope::commit`. Any error delivered after that (commit callback `false`, or failure to install the commit callback) becomes 503 `RESULT_UNKNOWN`; the second case is conservative, because the transaction was actually rolled back. Earlier SQL errors are 500. Revised after review: `status.detail` and the task controller's log lines carry only application-owned labels of the form `<operation> stage=<stage> reason=<reason>` (`TaskService::failureDetail`, characters limited to `[a-z_]`), for example `task_create stage=claim reason=db_error` or `task_create stage=commit reason=commit_unconfirmed`. The service never reads the ORM exception object (`describePgError`/`e.base()` are no longer used in task code), and the transaction error callback ignores the message it receives (which may contain transaction-creation exception text); it derives the detail from the service's own state (`commitRequested`, the recorded stage, or `task_create stage=transaction reason=begin_failed`). List and get use `task_list ...` / `task_get ...` labels. Boundary: this covers `TaskService` and `TaskController` only. Drogon's own ORM logging, `Db.h`/`Db.cc` (including the text `TxScope` composes internally) and other services that still use `describePgError` are unchanged.
+10. **Responses**: 201 new task, 200 replay, both `{ "task": Task }`. Task timestamps (`deadline.at`, `created_at`, `completed_at`) use UTC with six fractional digits, the same format as cursors; existing operations keep their formats. `status` is derived at read time; M3-B has no completion path, so `completed` appears only for rows written by M3-C (or by rollback-only tests).
+11. **Errors**: added `TASK_NOT_FOUND` (404), `PARTNER_REQUIRED` (409), `IDEMPOTENCY_KEY_REUSED` (409), `RESULT_UNKNOWN` (503). The completion-only codes (`TASK_NOT_ASSIGNEE`, `TASK_ALREADY_COMPLETED`, `TASK_EXPIRED`, `WALLET_BALANCE_LIMIT`) are **not** added, and no completion operation is advertised.
+12. **Reads**: one statement per request without a transaction: the caller's `couple_members` row `LEFT JOIN LATERAL` the page (or the task), so "no space" (0 rows), "space but no tasks" (one row with NULL task columns) and the page come from one snapshot. The outer query repeats the sort keys rather than relying on LATERAL output order. Membership comes only from `$1` (the session user). `getTask`: an id that is not uuid-shaped is 404 `TASK_NOT_FOUND` in the controller; another couple's task and an unknown id are the same 404.
+13. **Pagination**: exactly the Section 3.4 cursor format and predicates; `limit+1` rows; next cursor from the last returned row. `limit` is strict: missing is 50, otherwise a decimal integer 1-100 of at most three characters, else 400 (the Phase 0 list helper clamps instead; it is not used here). Cursor decoding is strict (alphabet, no padding, zero trailing bits, strict JSON with duplicate keys and trailing content rejected, exact field sets per view, `v` integer 1, exact timestamp format with valid calendar values, lowercase canonical uuid, length at most 512); a malformed cursor or a cursor for the other view is 400 before any query. The service also rejects a cursor whose view differs from the requested view.
+14. **Startup**: `checkTaskPrivilegesForStartup` runs after `checkWalletPrivilegesForStartup` and before filters, listeners, the scheduler and `run()`. Missing tables (the matrix reports `exists=false` and missing column rows), query error, timeout, wrong role or any mismatch refuses startup; only the policy summary (safe names and booleans) or `reason=timeout|query_error` is logged, never the raw error.
+15. **Frontend key policy**: one key per publication action, kept in memory only. After a network error, any 5xx (including 503 `RESULT_UNKNOWN`) the key is kept. Revised after review: the store exposes the pending normalized body; `TasksView` offers "retry" (original payload, original key) **only while the form's normalized content equals it** (submitting an unchanged form goes through the same retry path). Once the content differs, the retry control is hidden, a notice says the earlier result is still unconfirmed and that submitting is a **new** publication, and the submit button is labelled accordingly; it sends the edited content with a new key. A success clears the form only if the form still holds the submitted content; otherwise the newer draft is kept and the notice says so. An offline block or a missing local CSRF token means nothing was sent; the key is kept. A 2xx or 4xx ends the action and discards the key; changed content gets a new key; `reset()` discards all keys. Nothing is retried or replayed automatically.
+16. **Frontend invalidation**: component-local state in `TasksView` (form fields, local validation error, notice) is cleared whenever the session user id changes or becomes anonymous, and a view generation plus an unmount flag stop any publish continuation from touching the form or showing a notice after an account change or unmount (revised after review; the store reset alone does not clear component refs). In the store, a session generation (incremented by `reset()`, which every existing session reset path now calls) and the session user id guard every list, detail and publish response, success or failure; per-view request sequence numbers separately order list requests. A first-page load clears old rows (no stale rows next to an error); a failed "load more" keeps the rows already loaded from that listing and shows its own message (a `VALIDATION_ERROR` there asks the user to reload from page one). A successful publish reloads the open view from page one.
+17. **UI**: `/tasks` route inside the existing guard, linked from the home page; publish form with client-side mirrors of the rules; open view split into "to complete" (assignee = me) and "published by me"; 30-day history; load-more and refresh per view; task detail via `GET /api/v1/tasks/{taskId}`. **No completion button.**
+18. **Held-publisher test** (revised after review; the first version stored a fingerprint that did not describe the held row): the held row is a self-consistent copy of one normalized request (title, description, rewards, date-only local deadline of yesterday, `deadline_at` = today 00:00 Asia/Shanghai, key, and the service fingerprint of that request), built by `publicationRowSql` and verified by a self-check query that recomputes `deadline_at` from the request date and confirms the deadline has elapsed and `created_at` precedes it. **Simulated** original timing: `created_at` is set to yesterday 08:00 local, modelling an original publication accepted before its (now elapsed) deadline but not yet committed. **Observed** behaviour: a real publish with the same key and body does not finish within 300 ms and the observer sees a `Lock` wait on the claim; after COMMIT it returns the stored task as a replay (status `expired`, fields equal to the request); after ROLLBACK it is validated as a new request and rejected with 400. No sub-minute deadline or sleep is needed, and API time precision and the CTest timeout are unchanged. The committed replay-after-deadline case uses the same self-consistent builder and self-check.
+19. **Pagination fixture**: three dated and four undated open tasks with explicit `created_at` (two dated tasks share deadline and creation time; two undated tasks share creation time). With limit 2 the dated-to-undated transition happens inside page 2; with limit 3 page 1 ends exactly on the last dated task. (Section 6.3 described the opposite assignment; both properties are covered.)
+
+### 12.4 Tests written (not run)
+
+- Unit (`TaskServiceUnitTests.h`): title and description normalization including invalid UTF-8, controls, U+2028/2029, CRLF, lone CR, trimming and code-point limits; request field allow-list, integer-only rewards, ranges, zero/zero, deadline shapes and calendar validity; fingerprint format and sensitivity, including the explicit-length property; Idempotency-Key and limit rules; cursor round trips, the exact documented JSON, and 28 malformed or mismatched cursors; production SQL text (membership from `$1`, predicates, `limit+1` parameter, no OFFSET); Task JSON shape (11 fields, no balance fields); outcome to HTTP and error-code mapping; task startup refusal for an absent client, an empty report and missing tables.
+- Static: contract 0.4.0 operations, schemas, header parameter and error codes, no completion path or completion codes, existing operations preserved; controller routes with `AuthFilter`, path parameter binding, no PUT/PATCH/DELETE; CMake entry; claim-first SQL markers, `commitRequested` before commit, weak error capture, no wallet writes, no task UPDATE/DELETE; `main.cc` ordering; db_gated guard before block 14; the fixture domain and no DELETE/DROP/DISABLE TRIGGER in the M3-B db tests; web key header, no browser storage in the tasks store, tasks reset registered in the session store. The M3-A static case now also pins 0007's checksum; its M3-A-era "no task routes / not wired into startup / contract 0.3.0" assertions are replaced by the M3-B case, and the M2-B case now expects 0.4.0.
+- db_gated block 14 (`TaskServiceDbTests.h`), as `usapp_api` on `usapp_test` after the existing guard:
+  - publish: partner derivation, normalization, stored fingerprint and computed `deadline_at`; exactly one audit row with the documented keys, no title/description text, and the **same `xmin` as the task row** (same transaction); same-key replay with an identical task; key reuse 409 with nothing written; per-publisher key scope; `PARTNER_REQUIRED`; `SPACE_NOT_FOUND`; a new publish with a past deadline is 400 with nothing committed and no audit; date-only deadline equals the next Asia/Shanghai midnight; get/list access for both members, another couple, an unknown id and a user without a space;
+  - concurrent same-key publication: exactly one `Created`, one `Replayed`, one task, one audit;
+  - held original publication (self-consistent fixture with self-check; simulated historical `created_at`, elapsed deadline): the real publish does not finish within 300 ms, the observer sees a `Lock` wait on the claim statement, and after COMMIT it returns the stored task as a replay (status `expired`, fields match the request); after ROLLBACK: 400 and nothing committed; teardown evidence for the holder connection;
+  - committed past-deadline publication (self-consistent, self-checked) replayed with the same key: replay with matching fields;
+  - error details: three real database errors that echo input (a non-uuid user id containing a marker on publish, a marker as task id on get, a marker as cursor id on list) produce exactly the fixed labels, and neither `detail` nor `message` contains the marker or database error words; the lifetime case's SQL failure also asserts its fixed label;
+  - pagination with limits 2, 3 and 100 across dated/undated tasks and ties, cursor contents, partner view, a well-formed cursor built from another couple's task, another couple's member, a view-mismatched cursor; history of committed expired tasks (30-day boundary by expiry time, ties by id) with limit 2;
+  - rollback-only history with completions (production `listSql`/`getSql` texts in a rolled-back transaction with valid settlements checked by `SET CONSTRAINTS ALL IMMEDIATE`): a task created 40 days ago and completed an hour ago appears, one completed 31 days ago does not, completed tasks are not in the open view, the continuation query, another couple's member sees nothing, detail status `completed`; nothing committed (observer and teardown);
+  - callback lifetime sentinel for success, replay and SQL failure, with exactly one callback each;
+  - task startup check allowed on `usapp_test`.
+- Unit additionally: `failureDetail` format and replacement of non-`[a-z_]` characters. Static additionally: task service has no `describePgError`, `e.base()` or `.what()`, and its transaction error callback ignores its message argument; the controller has no `.what()`.
+- Web: `tasks-client.spec.ts` (POST headers including `Idempotency-Key` and `X-CSRF-Token`, no request without a CSRF token, offline block before fetch and no replay after `online`, GETs without CSRF, cursor passed verbatim, path encoding, error codes preserved, key shape); `tasks-store.spec.ts` (same key after 503/500/network, new key after 2xx/4xx, after content changes and after reset; offline not sent and not replayed; late publish success/failure after logout or account switch discarded; pagination append without duplicates, reload from page one, newer load wins, load-more invalidated by reload, first-page error clears rows, load-more error keeps rows; late list/detail after logout ignored); `tasks-view.spec.ts` (both views render, load-more uses the cursor, no completion control, local validation sends nothing, unconfirmed publish offers an explicit retry with the same key; editing after `RESULT_UNKNOWN` hides the retry and sends the edited payload with a new key; reverting to the original normalized content restores the retry, which sends the original payload and key; an A-to-B account switch with a deferred publish clears A's draft and a late success or failure neither changes B's draft nor shows a notice; becoming anonymous clears fields and local errors; a publish settling after unmount does not touch a newly mounted view).
+
+### 12.5 Not covered, deferred and limits
+
+- The unknown-commit path (503 `RESULT_UNKNOWN`) cannot be forced in `usapp_test`; it is covered by code review and the static ordering check only.
+- Error-detail redaction is tested with database errors that echo uuid-typed input; a database error that echoes the title or description text could not be triggered through the service (validation mirrors the table checks), so that case relies on the code path (the exception object is never read) and the static check. Drogon's internal ORM logging is outside this fix and may still log database error text at its own log level.
+- No automated HTTP-level test: pre-authentication 401, Origin/CSRF rejection on `POST /api/v1/tasks`, the 201 versus 200 status line, 400 for a malformed cursor or limit at the HTTP layer, and `no-store` headers on the new routes rely on the existing filter/response code paths, static checks and owner live checks.
+- Completed-history coverage is rollback-only; committed settlements, completion, concurrency of completions, deadline-across-wait for completion, partial failure, the cap fixture, existing-account lock serialization, post-commit visibility and attacks on committed settlements remain M3-C.
+- Committed fixtures are permanent (append-only tasks and `ON DELETE RESTRICT`). Expected growth per db_gated run: about 18 users, 9 couples, 20 tasks and 5 `task.created` audit rows, all under `@m3-fixture.test`. After these tests have run, "`usapp_test` has no `tasks` rows" (Section 11 step 8) no longer holds; checks must filter by fixture identifiers.
+- The added db_gated time (two held-publisher cases of roughly 1.5-2.5 s each plus small cases) is estimated, not measured; the 30 s CTest timeout is unchanged.
+- The design's Section 7.2 web test list includes completion behaviour; those tests belong to M3-C.
+
+### 12.6 Unverified assumptions (M3-B)
+
+- Everything compiles (C++17/Drogon v1.9.11, TypeScript/vue-tsc) and the new specs pass.
+- `INSERT ... ON CONFLICT DO NOTHING` on `tasks` waits for an uncommitted same-key row and then skips (commit) or inserts (rollback), and the waiting connection's `pg_stat_activity` row shows `wait_event_type = 'Lock'` with the claim text.
+- `FOR SHARE OF m` on `couple_members` is permitted for `usapp_api`.
+- `xmin` of the task and audit rows inserted in one transaction is equal and readable by `usapp_api`.
+- Drogon binds the string parameters as untyped text so that `$n::timestamptz`, `$n::uuid`, `$n::integer`, `$n::jsonb` and `NULLIF($n, '')::date/time` casts resolve; `Field::as<bool>()` reads the `deadline_in_future` boolean.
+- jsoncpp's strict reader settings (`strictMode`, `failIfExtra`, `rejectDupKeys`) behave as relied on for cursor decoding; Drogon's request JSON parser passes raw bytes through so that the strict UTF-8 check sees them.
+- Browsers send `<input type="date">` as `YYYY-MM-DD` and `<input type="time">` as `HH:MM` (default step).
+- Caddy forwards the `Idempotency-Key` request header unchanged.
+- The db_gated run stays within its 30-second timeout.
+
+### 12.7 Owner-run acceptance steps (one at a time, guided by Codex)
+
+1. Codex reviews the diff (backend, contract, web, tests, docs).
+2. `usapp_test` already has 0007 (Section 11.3). Optionally re-run `apply.ps1 -DryRun` against `usapp_test`: 0000-0007 checksums match and nothing is pending.
+3. Build the backend test image and run all CTest targets with `USAPP_TEST_DSN` set: `unit`, `db_gated` (not skipped) and `static_check` pass; record timings against the 30 s budget; the log shows `wallet privilege policy` and `task privilege policy` summaries.
+4. Web: unit tests and type check (`pnpm test`, `pnpm typecheck`). Do **not** run `pnpm build` yet: `apps/web/dist` is bind-mounted, so building changes the files Caddy serves immediately.
+5. On `usapp_test`, spot-check that M3-B rows exist only under `@m3-fixture.test` users and that no wallet rows were committed for them.
+6. Main rollout (Section 12.8), then live checks: publish flower-only, sunshine-only and both-reward tasks, with and without a deadline (date only and date+time); the partner sees them in "to complete"; a publish with a past deadline is rejected; a double click creates one task, and if an unconfirmed result can be produced, its explicit retry returns the same task rather than a duplicate; a non-member cannot read another space's task id; no-cookie and pre-auth requests to the three routes return 401; wrong-Origin and missing-CSRF publishes return 403; responses carry `Cache-Control: no-store`; logout during an in-flight publish leaves the next account's view untouched; offline publish is blocked and not replayed; no completion button exists.
+7. Database after live checks: `tasks` rows and `task.created` audit rows match the actions taken; audit `detail` contains no task text; no `wallet_operations` with `source_type = 'task'` exist (no completion path).
+
+### 12.8 Main-database rollout (owner-only; not authorized or performed by Claude Code)
+
+The new runtime **refuses to start** on a database without 0007 and section 8 grants (task startup check). Order:
+
+1. Tests first (steps 3-4 above) on `usapp_test`.
+2. Fresh backup of the main database, then restore it into a scratch database and verify the restore (for example table row counts and `schema_migrations` checksums). Do not proceed without a verified restore.
+3. `apply.ps1 -DryRun` against the main database: 0000-0006 checksums match (0006 `2633e17e...7d543d`) and only `0007_tasks_one_off` is pending.
+4. Apply 0007 to the main database with `-InitRoles`; verify the task and wallet privilege matrices; rerun `-InitRoles` and recheck (unchanged). Recorded 0007 checksum must be `a9c680a0...556161`.
+5. Confirm the currently running (M2-B) runtime still works after 0007 (health, login, wallet card): it ignores the task tables.
+6. Preserve and tag the current runtime image as the rollback image before building the new one.
+7. Build and deploy the new runtime; the startup log must show both `wallet privilege policy: ... ok=true` and `task privilege policy: ... ok=true`. If startup is refused, redeploy the preserved image and investigate.
+8. Only after the new runtime is healthy, build the web (`pnpm build`), which immediately replaces the bind-mounted `dist`; accept the PWA update prompt on devices.
+9. Rollback limits: redeploying the preserved image is safe after 0007 (tasks become invisible, nothing is lost); 0007 cannot be unapplied without a restore; committed tasks cannot be deleted; restoring the previous web requires rebuilding it from the previous source.
+
+### 12.9 Owner-run M3-B verification and main rollout (2026-10-10, Asia/Shanghai)
+
+Run by the owner under Codex guidance. Claude Code ran none of these commands. Statements in Sections 12.1-12.8 that verification had not been run, or that 0007 is not on the main database, describe the state when they were written.
+
+Backend tests:
+
+- Backend test image build: exit 0.
+- Initial CTest: `unit` Passed 0.04 s; `db_gated` Passed 3.70 s, not skipped; `static_check` Failed 0.01 s; total 3.76 s; exit 8.
+- Cause of the static failure: the M3-B check for browser-storage identifiers matched the words in the header comment of `apps/web/src/stores/tasks.ts`. Only that comment was rewritten; the static checks were not weakened.
+- Image rebuilt, exit 0. Targeted `static_check`: Passed 0.01 s, total 0.02 s, exit 0.
+- All three targets passed across these runs. No later single full-suite rerun is claimed.
+
+Web:
+
+- Initial run: 10 files passed, 1 failed; 87 tests passed, 1 failed. The anonymous-reset test in `tasks-view.spec.ts` searched the whole page for the reward validation sentence, which also appears in the view's permanent help text.
+- The assertions were scoped to the form's alert element (`form [role="alert"]`); the validation, no-request and reset coverage was kept.
+- Rerun: 11 files / 88 tests passed, 11.24 s, exit 0.
+- Type check and production build: exit 0. Service worker generated; precache 18 entries, 160.11 KiB.
+
+Backup and main-database rollout:
+
+- Fresh main backup and export succeeded (`backups/usapp_before_m3b_0007_20261010_001433.dump`, 164181 bytes; owner-reported; Claude Code did not inspect it).
+- Restored with exit-on-error in a single transaction into `usapp_m3b_restore_20261010_001509`: success.
+- Main and restored databases matched on basic counts: 7 migrations, 2 users, 1 couple, 2 members, 11 audit rows; wallet tables empty; task tables absent. This was a basic count/schema check, not a row-by-row comparison.
+- Main DryRun: only `0007_tasks_one_off` pending; existing checksums matched.
+- 0007 applied to the main database with `-InitRoles`, exit 0; checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`. **0007 is now applied to both `usapp_test` and the main database and must never be edited.**
+- Repeated `-InitRoles` succeeded; privilege checks before and after matched.
+- The old (M2-B) runtime's nickname, space and wallet workflow still worked after 0007.
+- Rollback image preserved and tagged `usapp-api:before-m3b-20261010_002116` (image `sha256:2338ae4ef4af919f6ad4e47f4d7eb21bac02b2726b6cc09e22caee2108355a4f`). No runtime rollback was exercised.
+- New runtime build/update exit 0; API healthy. Startup log: wallet privilege policy `ok=true`, 187 checks; task privilege policy `ok=true`, 146 checks; both with zero mismatches, missing and unexpected checks.
+
+Live checks on the main deployment:
+
+- Flower-only, sunshine-only and both-reward publications worked; no deadline, date-only and date+time deadlines displayed correctly.
+- The partner could view the first task with correct identities and content.
+- Publish returned 201; a same-key replay returned 200 with the same task; a changed payload under the same key returned 409 `IDEMPOTENCY_KEY_REUSED`.
+- Zero rewards, a past deadline, an extra field and a 41-code-point title each returned 400 `VALIDATION_ERROR`; the list was unchanged.
+- Missing or incorrect CSRF token: 403 `CSRF_TOKEN_INVALID`; list unchanged.
+- Wrong Origin: 403 `ORIGIN_NOT_ALLOWED` (curl exit 0); this request carried no authenticated cookie.
+- No cookie: list, detail and publish returned 401 `UNAUTHENTICATED`. A pre-authentication session (200, `authenticated=false`, token present) still received 401 on list, detail and publish.
+- Open-view pagination with `limit=2`: two pages covering the four open tasks at that time, no duplicates. Detail and history returned 200; an invalid limit and an invalid cursor returned 400; an unknown task returned 404. Publish and the checked read and error responses carried `no-store`.
+- The owner reported that an offline publish was blocked with no replay after reconnecting, and that a rapid double click produced one task.
+- Final main query: 5 tasks and 5 `task.created` audit rows (ids 12-16); `task_completions`, wallet accounts, operations and entries all 0; exit 0. Audit `detail` contains only `reward_flowers`, `reward_sunshine` and `has_deadline`, with no title or description.
+
+Limits:
+
+- Targeted checks, not exhaustive verification.
+- Not exercised live: a forced `RESULT_UNKNOWN` or a connection loss during COMMIT, logout during an in-flight publish, and a cross-space non-member read. The corresponding automated coverage (db_gated and web specs, Section 12.4) is separate evidence and is not a live check.
+- No runtime rollback was exercised; the backup restore was checked by basic counts only.
+- M3-C (completion, settlement, completion concurrency, committed-settlement attacks) is not approved.
+- No separate formal M3-B acceptance decision, commit or push is recorded. Next: owner Git review/commit/push.

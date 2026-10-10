@@ -2,14 +2,16 @@ openapi: 3.1.0
 
 info:
   title: USapp API（阶段 0 冻结契约 + 阶段 1 增量）
-  version: 0.3.0
+  version: 0.4.0
   description: |
     阶段 0 只覆盖：登录与会话、注册白名单、情侣空间创建与邀请加入、
     当前用户/空间查询、健康检查、管理后台骨架。
 
     0.2.0 起为阶段 1 的增量版本：阶段 0 的全部操作、字段与行为保持冻结不变；
     阶段 1 只新增操作。当前新增：`PATCH /api/v1/me`（修改自己的昵称，M1），
-    `GET /api/v1/wallet`（只读自己的资产余额，M2-B，0.3.0 起）。
+    `GET /api/v1/wallet`（只读自己的资产余额，M2-B，0.3.0 起），
+    `POST /api/v1/tasks`、`GET /api/v1/tasks`、`GET /api/v1/tasks/{taskId}`
+    （一次性任务的发布与读取，M3-B，0.4.0 起；不含完成接口）。
 
     契约级硬约束（所有实现必须遵守，后续阶段不得放宽）：
     - Web 与 API 同源部署，全部接口只允许来自配置的 PUBLIC_ORIGIN。
@@ -39,6 +41,8 @@ tags:
     description: 情侣空间与邀请
   - name: wallet
     description: 当前用户自己的资产（只读）
+  - name: tasks
+    description: 一次性任务的发布与读取（M3-B；完成与结算不在本版本）
   - name: admin
     description: 管理后台（仅回环 / 受信代理可达）
 
@@ -242,6 +246,130 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+
+  /api/v1/tasks:
+    post:
+      tags: [tasks]
+      operationId: createTask
+      summary: 给同一空间的另一成员发布一次性任务（阶段 1 M3-B）
+      description: |
+        - 需要正式会话 + CSRF 令牌 + 精确 Origin；预认证会话返回 401。
+        - 必须携带 `Idempotency-Key`（16～128 个字母、数字、`-` 或 `_`；客户端为每次发布动作
+          生成一个随机 UUID，只在重试同一次发布时复用）。
+        - 发布者取自会话；空间与接收者（空间里的另一成员）由服务端推导，请求体不能指定。
+          请求体只允许 `CreateTaskRequest` 列出的字段，出现其他字段返回 400。
+        - 先以 `(发布者, Idempotency-Key)` 抢占，再分类：同键且请求指纹相同返回 200 与已保存的任务
+          （即使其截止时间已过）；同键但内容不同返回 409 IDEMPOTENCY_KEY_REUSED；
+          只有新发布才要求截止时间晚于当前时间（否则 400）。
+        - 任务与 `task.created` 审计在同一事务内提交（审计不含标题与描述文本），
+          提交确认成功后才返回 201。提交结果无法确认时返回 503 RESULT_UNKNOWN，
+          客户端应使用同一个 `Idempotency-Key` 重试，不会重复发布。
+        - 尚未加入空间返回 404 SPACE_NOT_FOUND；空间只有一名成员返回 409 PARTNER_REQUIRED。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: 新任务已发布（提交已确认）
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '200':
+          description: 同键同内容的重放，返回已保存的任务
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ResultUnknown'
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      summary: 分页读取本空间的任务（进行中 / 最近历史）（阶段 1 M3-B）
+      description: |
+        - 需要正式会话；不要求 CSRF 令牌。空间只取自会话，与游标内容无关。
+        - `view=open`：没有完成记录、且没有截止时间或截止时间晚于当前时间的任务，
+          按 `(截止时间升序、无截止时间排最后, 创建时间升序, id 升序)` 排序。
+        - `view=history`：最近 30 天内完成的任务，以及最近 30 天内到期而未完成的任务，
+          按 `(完成或到期时间降序, id 降序)` 排序；窗口按完成或到期时间，不按创建时间。
+        - `limit` 必须是 1～100 的整数（默认 50），非法值返回 400。
+        - 游标不透明；格式非法、或与 `view` 不匹配时返回 400，且不执行查询。
+          两次请求之间任务可能从进行中变为历史，此时从第一页重新加载。
+        - 尚未加入空间返回 404 SPACE_NOT_FOUND。
+      parameters:
+        - $ref: '#/components/parameters/TaskView'
+        - $ref: '#/components/parameters/TaskCursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 一页任务
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/tasks/{taskId}:
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: 读取本空间的一项任务（阶段 1 M3-B）
+      description: |
+        - 需要正式会话；不要求 CSRF 令牌。
+        - 不存在、或属于其他空间的任务都返回 404 TASK_NOT_FOUND（故意不区分）；
+          尚未加入空间返回 404 SPACE_NOT_FOUND。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 任务详情
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/v1/spaces:
     post:
@@ -575,6 +703,27 @@ components:
       name: cursor
       in: query
       schema: { type: string }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskView:
+      name: view
+      in: query
+      required: true
+      schema: { type: string, enum: [open, history] }
+    TaskCursor:
+      name: cursor
+      in: query
+      description: 上一页响应的 `next_cursor`，原样回传；不透明。
+      schema: { type: string, maxLength: 512 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 每次发布动作一个随机值（建议 UUID）；只在重试同一次发布时复用。
+      schema: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }
     Query:
       name: query
       in: query
@@ -648,6 +797,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: 服务内部错误（细节只写日志）
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ResultUnknown:
+      description: 提交结果无法确认（RESULT_UNKNOWN）；使用同一个 Idempotency-Key 重试
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     TooManyRequests:
       description: 触发冷却或频率限制
       headers:
@@ -695,6 +862,10 @@ components:
                 - ALREADY_IN_SPACE
                 - NOT_FOUND
                 - INTERNAL_ERROR
+                - TASK_NOT_FOUND
+                - PARTNER_REQUIRED
+                - IDEMPOTENCY_KEY_REUSED
+                - RESULT_UNKNOWN
             message: { type: string }
             details:
               type: object
@@ -822,6 +993,106 @@ components:
       required: [wallet]
       properties:
         wallet: { $ref: '#/components/schemas/Wallet' }
+
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [title, reward_flowers, reward_sunshine]
+      properties:
+        title:
+          type: string
+          description: |
+            严格 UTF-8；去掉首尾空白（Unicode Zs）后 1～40 个 Unicode 码点；
+            任何位置都不得包含控制字符或换行。服务端保存规范化后的值。
+        description:
+          type: string
+          description: |
+            可选；CRLF 先归一为 LF，之后只允许 LF 一种换行，其他控制字符（含单独的 CR）拒绝；
+            去掉首尾空白与换行后最多 500 个 Unicode 码点。
+        reward_flowers: { type: integer, minimum: 0, maximum: 999 }
+        reward_sunshine:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: 两项奖励至少一项大于 0；只接受 JSON 整数（不接受 1.0、字符串或布尔值）。
+        deadline:
+          oneOf:
+            - $ref: '#/components/schemas/TaskDeadlineInput'
+            - type: 'null'
+
+    TaskDeadlineInput:
+      type: object
+      additionalProperties: false
+      required: [local_date]
+      description: Asia/Shanghai 本地日期与可选时间；只有日期时截止于次日 0 点（不含）。
+      properties:
+        local_date: { type: string, format: date, description: 'YYYY-MM-DD' }
+        local_time:
+          oneOf:
+            - { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', description: 'HH:MM' }
+            - type: 'null'
+
+    TaskDeadline:
+      type: object
+      additionalProperties: false
+      required: [local_date, local_time, at]
+      properties:
+        local_date: { type: string, format: date }
+        local_time:
+          oneOf:
+            - { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+            - type: 'null'
+        at:
+          type: string
+          format: date-time
+          description: 截止时刻（不含），UTC，六位小数秒。
+
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, creator_id, assignee_id, reward_flowers, reward_sunshine,
+                 deadline, status, completed_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        creator_id: { type: string, format: uuid }
+        assignee_id: { type: string, format: uuid }
+        reward_flowers: { type: integer, minimum: 0, maximum: 999 }
+        reward_sunshine: { type: integer, minimum: 0, maximum: 100000 }
+        deadline:
+          oneOf:
+            - $ref: '#/components/schemas/TaskDeadline'
+            - type: 'null'
+        status:
+          type: string
+          enum: [open, completed, expired]
+          description: 由服务端按读取时刻推导；本版本没有完成接口。
+        completed_at:
+          oneOf:
+            - { type: string, format: date-time }
+            - type: 'null'
+        created_at: { type: string, format: date-time }
+
+    TaskResponse:
+      type: object
+      additionalProperties: false
+      required: [task]
+      properties:
+        task: { $ref: '#/components/schemas/Task' }
+
+    TaskListResponse:
+      type: object
+      additionalProperties: false
+      required: [tasks, next_cursor]
+      properties:
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        next_cursor:
+          oneOf:
+            - { type: string }
+            - type: 'null'
 
     SpaceResponse:
       type: object

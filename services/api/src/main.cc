@@ -7,7 +7,7 @@
 //   1. 日志级别（LOG_LEVEL，默认 info）
 //   2. AppConfig::load()        环境变量读取与校验
 //   3. 数据库连接池初始化 + 有界等待（等 Postgres 起来，最多 30 秒）
-//      随后钱包有效权限检查（最多 10 秒）；失败时在监听/调度前退出。
+//      随后钱包与任务表的有效权限检查（各最多 10 秒）；失败时在监听/调度前退出。
 //   4. 注册两个过滤器（AuthFilter / AdminFilter），供控制器按名引用
 //   5. 配置并启动进程内调度（阶段 0 只注册心跳任务，不做任何业务结算）
 //   6. 绑定两个监听器：公开（Caddy 反代）与管理（只经宿主回环）
@@ -34,6 +34,7 @@
 #include "config/AppConfig.h"
 #include "core/Errors.h"
 #include "db/Db.h"
+#include "db/TaskStartupCheck.h"
 #include "db/WalletStartupCheck.h"
 #include "http/AdminFilter.h"
 #include "http/AuthFilter.h"
@@ -192,6 +193,22 @@ int main() {
         return 1;
     }
     LOG_INFO << walletStartup.report->summary();
+
+    // M3-B: the task routes need the narrowed task-table matrix (0007 applied, init-roles section 8).
+    // Missing tables, a query error, a timeout or any mismatch refuses startup; the raw error is not logged.
+    const auto taskStartup =
+        usapp::db::checkTaskPrivilegesForStartup(usapp::db::Pool::instance().client());
+    if (!taskStartup.allowed()) {
+        if (taskStartup.report) {
+            LOG_ERROR << usapp::db::TaskPrivilegePolicy::summary(*taskStartup.report);
+        } else {
+            LOG_ERROR << "task privilege policy: ok=false reason="
+                      << (taskStartup.state == usapp::db::TaskStartupResult::State::Timeout
+                              ? "timeout" : "query_error");
+        }
+        return 1;
+    }
+    LOG_INFO << usapp::db::TaskPrivilegePolicy::summary(*taskStartup.report);
 
     // ---- 3) Drogon 运行参数 ----
     // 阶段 0 的请求体都很小（验证码、邀请码、JSON 元数据），这里给一个明确上限：

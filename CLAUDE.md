@@ -36,15 +36,26 @@ M3-A (task database foundation: migration 0007, init-roles section 8,
 TaskPrivilegePolicy, tests) was approved on 2026-10-09, implemented, and passed the
 recorded owner-run verification on usapp_test on 2026-10-09 (0007 applied there;
 checksum a9c680a0...6161; design Section 11.3). No separate formal acceptance
-decision is recorded; 0007 is not on the main database. Owner Git review/commit/push
-is next. Current task: none; wait for the next assigned task. The owner confirmed
-the product decisions in the design's Section 2.3. M3-B and M3-C
-are NOT approved; D29, D30, D32, D33 stay proposals. Plan Section 9.8's lock order
-stays binding unless D30 is approved. Migration 0007 is applied and must never be edited.
+decision is recorded; 0007 was applied to the main database on 2026-10-10 (below). On 2026-10-09 the owner
+committed and pushed M3-A as 6a9da4bd31e4f2b7863501c39e70931fadd5a6e2 (design
+Section 12.1; dated observation). The owner confirmed the product decisions in the
+design's Section 2.3.
+
+M3-B (task publication and read APIs, OpenAPI 0.4.0, task startup enforcement,
+TasksView, per-run committed task fixtures under @m3-fixture.test) was approved on
+2026-10-09, implemented by Claude Code (design Section 12), and on 2026-10-10
+passed the recorded owner-run checks (design Section 12.9). The owner applied 0007
+to the main database and deployed the M3-B runtime and web build. No separate formal
+M3-B acceptance decision, commit or push is recorded. Current task: none; wait for
+the owner's Git review/commit/push and the next assigned task.
+M3-C (completion and settlement) is NOT approved; D29, D30, D32, D33 stay proposals.
+Plan Section 9.8's lock order stays binding unless D30 is approved. Migrations 0006
+and 0007 are applied and must never be edited. No new migration is authorized.
 Never run the usapp_test reset procedure (design Section 6.5); it is owner-only.
-M3-A is implemented and owner-verified; M3-B/M3-C and M4-M10 implementations
-remain unapproved, as do the other proposed defaults. Do not implement wallet
-posting or change applied migration 0006, grants, dependencies or deployment.
+M3-A is implemented and owner-verified; M3-B passed the recorded owner-run checks; M3-C and
+M4-M10 implementations remain unapproved, as do the other proposed defaults. Do not
+implement wallet posting or change applied migrations, grants, dependencies or
+deployment.
 Key task edits after publication require recipient confirmation (C3/D3).
 
 ## Roles and authorization

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "TaskServiceUnitTests.h"
 #include "TestDatabaseGuard.h"
 #include "TestSupport.h"
 #include "core/Crypto.h"
@@ -769,6 +770,9 @@ int main() {
         CHECK_FALSE(result.allowed());
         CHECK_FALSE(result.report.has_value());
     }
+
+    // 阶段 1 M3-B：任务发布与读取的纯函数、游标、映射与启动判定（见 TaskServiceUnitTests.h）。
+    usapptest::taskunit::runTaskServiceUnitTests();
 
     return usapptest::finish();
 }

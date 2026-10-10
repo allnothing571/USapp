@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 首页：阶段 0 账号/空间，M1 昵称，M2-B 自己的只读资产。
+ * 首页：阶段 0 账号/空间，M1 昵称，M2-B 自己的只读资产，M3-B 任务入口。
  *
  * 展示当前用户、自己的资产、空间时区、成员槽位与可用邀请，加一个注销按钮。
- * 阶段 1 已增加自己的昵称编辑与资产只读卡片。
- * **不实现**其它阶段 1+ 的功能（任务、奖励、留言、日历、纪念日等）——
+ * 阶段 1 已增加自己的昵称编辑、资产只读卡片与任务页入口（发布与列表在 TasksView）。
+ * **不实现**其它阶段 1+ 的功能（完成任务、奖励兑换、留言、日历、纪念日等）——
  * 那些功能要先有独立评审过的契约，这里不提前埋。
  */
 import { computed, onMounted, ref, watch } from 'vue'
@@ -127,7 +127,7 @@ async function logout(): Promise<void> {
   <section class="page">
     <header>
       <h1 class="page__title">小空间</h1>
-      <p class="page__subtitle">账号、空间与我的资产，其余功能后续开放。</p>
+      <p class="page__subtitle">账号、空间、我的资产与任务，其余功能后续开放。</p>
     </header>
 
     <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
@@ -187,6 +187,12 @@ async function logout(): Promise<void> {
       <button v-if="walletStore.status === 'ready'" class="btn btn--small btn--soft" type="button" @click="walletStore.load()">
         刷新
       </button>
+    </div>
+
+    <div class="card">
+      <h2 class="card__title">任务</h2>
+      <p class="card__hint">给对方发布一次性任务，查看进行中与最近的任务。</p>
+      <RouterLink class="btn btn--block btn--soft" :to="{ name: 'tasks' }">进入任务</RouterLink>
     </div>
 
     <div class="card">

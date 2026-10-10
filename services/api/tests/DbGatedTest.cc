@@ -20,6 +20,9 @@
 //   7. 阶段 1 M2-A：钱包流水账（WalletLedgerDbTests.h）：有效权限矩阵、触发器目录、
 //      链式校验与篡改、上限、结构与成员一致性、延迟完整性（立即与提交时）、幂等、
 //      usapp_api 权限结果、账户创建竞争。从不提交钱包行。
+//   8. 阶段 1 M3-A：任务表约束、只追加、权限矩阵与结算一致性（TaskLedgerDbTests.h，只回滚）。
+//   9. 阶段 1 M3-B：真实 TaskService 发布与读取（TaskServiceDbTests.h）。提交按次隔离的
+//      任务夹具（随机 uuid、@m3-fixture.test 域名，永久保留）；需要完成记录的用例只回滚。
 //
 // 依赖：usapp_core、PostgreSQL 17 测试库。
 // =====================================================================
@@ -39,6 +42,7 @@
 
 #include "AdminFilterProbe.h"
 #include "TaskLedgerDbTests.h"
+#include "TaskServiceDbTests.h"
 #include "TestDatabaseGuard.h"
 #include "TestSupport.h"
 #include "WalletLedgerDbTests.h"
@@ -1743,6 +1747,10 @@ int main() {
     // 13. M3-A：任务表约束、只追加、权限矩阵与任务结算一致性（见 TaskLedgerDbTests.h）。
     //     成功夹具只存在于回滚事务内；已提交结算上的跨事务攻击属于 M3-C。
     usapptest::task::runTaskLedgerDbTests(client, dsn);
+
+    // 14. M3-B：真实 TaskService 的发布、重放、并发、持有发布者、分页、访问控制、生命周期
+    //     与启动检查（见 TaskServiceDbTests.h）。已提交夹具只含任务及其非钱包父行。
+    usapptest::taskservice::runTaskServiceDbTests(client, dsn);
 
     return usapptest::finish();
 }

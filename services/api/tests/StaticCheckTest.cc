@@ -239,7 +239,8 @@ int main() {
     TEST_CASE("StaticCheck: M2-B read route, contract and startup ordering") {
         usapptest::noteStaticAssertion("Text checks only; live startup and routing require owner acceptance.");
         const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
-        CHECK_CONTAINS(contract, "version: 0.3.0");
+        // 0.4.0（M3-B）只新增任务操作；钱包读取保持不变。
+        CHECK_CONTAINS(contract, "version: 0.4.0");
         CHECK_CONTAINS(contract, "operationId: getWallet");
         CHECK_CONTAINS(contract, "WalletResponse:");
         const std::string controller = readFileContent(
@@ -337,12 +338,124 @@ int main() {
             CHECK(script.find_first_not_of(" \t\r\n", lastRollback + 9) == std::string::npos);
         }
 
-        // M3-A 范围边界：不接入启动、不改契约版本、不新增任务接口。
-        const std::string entry = readFileContent(repoRoot / "services" / "api" / "src" / "main.cc");
-        CHECK_NOT_CONTAINS(entry, "TaskPrivilegePolicy");
+        // M3-A 时的范围边界（不接入启动、不新增任务接口）已由 M3-B 取代，见下一个用例。
+        // 0007 已在 usapp_test 应用，字节必须保持不变。
+        CHECK_EQ(usapp::crypto::sha256Hex(taskSql),
+                 std::string("a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161"));
+    }
+
+    // -----------------------------------------------------------------
+    // 5. 阶段 1 M3-B：任务发布与读取接口、契约 0.4.0、启动检查顺序与范围边界（静态文本断言）
+    // -----------------------------------------------------------------
+    TEST_CASE("StaticCheck: M3-B task routes, contract 0.4.0, startup ordering and scope boundaries") {
+        usapptest::noteStaticAssertion("（文本检查，不是运行时验证；运行时见 db_gated 与负责人验收）");
         const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
-        CHECK_CONTAINS(contract, "version: 0.3.0");
-        CHECK_NOT_CONTAINS(contract, "/api/v1/tasks");
+        CHECK_CONTAINS(contract, "version: 0.4.0");
+        CHECK_CONTAINS(contract, "  /api/v1/tasks:");
+        CHECK_CONTAINS(contract, "  /api/v1/tasks/{taskId}:");
+        CHECK_CONTAINS(contract, "operationId: createTask");
+        CHECK_CONTAINS(contract, "operationId: listTasks");
+        CHECK_CONTAINS(contract, "operationId: getTask");
+        CHECK_CONTAINS(contract, "CreateTaskRequest:");
+        CHECK_CONTAINS(contract, "TaskListResponse:");
+        CHECK_CONTAINS(contract, "name: Idempotency-Key");
+        for (const char *code : {"- TASK_NOT_FOUND", "- PARTNER_REQUIRED", "- IDEMPOTENCY_KEY_REUSED",
+                                 "- RESULT_UNKNOWN"}) {
+            CHECK_CONTAINS(contract, code);
+        }
+        // 完成接口属于 M3-C：契约不得提前声明。
+        CHECK_NOT_CONTAINS(contract, "/completion");
+        CHECK_NOT_CONTAINS(contract, "completeTask");
+        CHECK_NOT_CONTAINS(contract, "TASK_ALREADY_COMPLETED");
+        CHECK_NOT_CONTAINS(contract, "WALLET_BALANCE_LIMIT");
+        CHECK_NOT_CONTAINS(contract, "TASK_NOT_ASSIGNEE");
+        // 既有操作保留。
+        for (const char *op : {"operationId: getMe", "operationId: updateMe", "operationId: getWallet",
+                               "operationId: createSpace", "operationId: acceptInvite"}) {
+            CHECK_CONTAINS(contract, op);
+        }
+
+        const auto ctrlDir = repoRoot / "services" / "api" / "src" / "controllers";
+        const std::string controller = readFileContent(ctrlDir / "TaskController.cc");
+        CHECK_FALSE(controller.empty());
+        CHECK_CONTAINS(controller,
+                       "ADD_METHOD_TO(TaskController::createTask, \"/api/v1/tasks\", drogon::Post,\n"
+                       "                  AuthFilter::classTypeName());");
+        CHECK_CONTAINS(controller,
+                       "ADD_METHOD_TO(TaskController::listTasks, \"/api/v1/tasks\", drogon::Get,\n"
+                       "                  AuthFilter::classTypeName());");
+        CHECK_CONTAINS(controller,
+                       "ADD_METHOD_TO(TaskController::getTask, \"/api/v1/tasks/{taskId}\", drogon::Get,\n"
+                       "                  AuthFilter::classTypeName());");
+        CHECK_CONTAINS(controller, "std::string taskId");
+        CHECK_CONTAINS(controller, "ctrl::requireUser");
+        CHECK_CONTAINS(controller, "TaskService::validIdempotencyKey");
+        CHECK_CONTAINS(controller, "TaskService::parseCreateRequest");
+        CHECK_NOT_CONTAINS(controller, "getParameter(\"taskId\")");
+        CHECK_NOT_CONTAINS(controller, "getParameter(\"user");
+        CHECK_NOT_CONTAINS(controller, "completion");
+        CHECK_NOT_CONTAINS(controller, "drogon::Put");
+        CHECK_NOT_CONTAINS(controller, "drogon::Delete");
+        CHECK_NOT_CONTAINS(controller, "drogon::Patch");
+        const std::string cmake = readFileContent(repoRoot / "services" / "api" / "CMakeLists.txt");
+        CHECK_CONTAINS(cmake, "src/controllers/TaskController.cc");
+
+        const std::string service =
+            readFileContent(repoRoot / "services" / "api" / "src" / "services" / "TaskService.cc");
+        CHECK_FALSE(service.empty());
+        // 先抢占、再分类；截止时间只在新插入分支检查；审计同事务；提交确认后才成功。
+        CHECK_CONTAINS(service, "ON CONFLICT (creator_id, create_idempotency_key) DO NOTHING");
+        CHECK_CONTAINS(service, "deadline_at > clock_timestamp()) AS deadline_in_future");
+        CHECK_CONTAINS(service, "FOR SHARE OF m");
+        CHECK_ORDER(service, "void createStepClassifyExisting(", "void createStepClaim(");
+        CHECK_ORDER(service, "ctx->commitRequested = true;", "ctx->scope->commit(");
+        CHECK_CONTAINS(service, "std::weak_ptr<CreateCtx> weakCtx = ctx;");
+        CHECK_CONTAINS(service, "'task.created'");
+        // 只发布与读取：不写钱包表、不修改或删除任务、没有完成记录写入。
+        CHECK_NOT_CONTAINS(service, "INSERT INTO wallet_");
+        CHECK_NOT_CONTAINS(service, "INSERT INTO task_completions");
+        CHECK_NOT_CONTAINS(service, "UPDATE tasks");
+        CHECK_NOT_CONTAINS(service, "DELETE FROM");
+        CHECK_NOT_CONTAINS(service, "OFFSET");
+        // 应用自有的错误详情：不转发 ORM 异常文本，也不使用事务回调收到的消息。
+        CHECK_NOT_CONTAINS(service, "describePgError");
+        CHECK_NOT_CONTAINS(service, "e.base()");
+        CHECK_NOT_CONTAINS(service, ".what()");
+        CHECK_CONTAINS(service, "[weakCtx](const std::string &) {");
+        CHECK_NOT_CONTAINS(controller, ".what()");
+
+        const std::string entry = readFileContent(repoRoot / "services" / "api" / "src" / "main.cc");
+        const auto mainPos = entry.find("int main()");
+        CHECK(mainPos != std::string::npos);
+        if (mainPos != std::string::npos) {
+            const auto mainBody = entry.substr(mainPos);
+            CHECK_ORDER(mainBody, "checkWalletPrivilegesForStartup(", "checkTaskPrivilegesForStartup(");
+            CHECK_ORDER(mainBody, "checkTaskPrivilegesForStartup(", "registerFilter(");
+            CHECK_ORDER(mainBody, "checkTaskPrivilegesForStartup(", "addListener(");
+            CHECK_ORDER(mainBody, "checkTaskPrivilegesForStartup(", "startScheduler()");
+            CHECK_ORDER(mainBody, "checkTaskPrivilegesForStartup(", "drogon::app().run()");
+        }
+
+        const std::string dbGated = readFileContent(repoRoot / "services" / "api" / "tests" / "DbGatedTest.cc");
+        CHECK_ORDER(dbGated, "SELECT current_database()::text AS name", "runTaskServiceDbTests(");
+        const std::string dbTests =
+            readFileContent(repoRoot / "services" / "api" / "tests" / "TaskServiceDbTests.h");
+        CHECK_CONTAINS(dbTests, "@m3-fixture.test");
+        CHECK_NOT_CONTAINS(dbTests, "DELETE FROM");
+        CHECK_NOT_CONTAINS(dbTests, "DISABLE TRIGGER");
+        CHECK_NOT_CONTAINS(dbTests, "DROP ");
+
+        const auto webDir = repoRoot / "apps" / "web" / "src";
+        const std::string webApi = readFileContent(webDir / "api" / "tasks.ts");
+        CHECK_CONTAINS(webApi, "'Idempotency-Key'");
+        CHECK_CONTAINS(webApi, "from './client'");
+        const std::string webStore = readFileContent(webDir / "stores" / "tasks.ts");
+        CHECK_FALSE(webStore.empty());
+        CHECK_NOT_CONTAINS(webStore, "localStorage");
+        CHECK_NOT_CONTAINS(webStore, "sessionStorage");
+        CHECK_NOT_CONTAINS(webStore, "indexedDB");
+        const std::string webSession = readFileContent(webDir / "stores" / "session.ts");
+        CHECK_CONTAINS(webSession, "useTasksStore().reset()");
     }
 
     return usapptest::finish();

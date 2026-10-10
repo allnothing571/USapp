@@ -27,10 +27,15 @@ PostgreSQL 17 迁移与数据库侧测试。
 - `init-roles.sql` 第 7 节在 ALL TABLES 授权之后重新收窄钱包表权限，因此重新执行 `apply.ps1 -InitRoles` 不会放宽。
 - `0006_wallet_ledger.sql` 已在测试库与主库应用，**禁止修改**（SHA-256 `2633e17ea6ff6e664832df84023d1fab8aa9513b4cfe48786c4ca093bc7d543d`）。
 
-### 任务表（0007）要点（阶段 1 M3-A；2026-10-09 已在 `usapp_test` 上通过负责人执行的验证）
+### 任务表（0007）要点（阶段 1 M3-A；2026-10-09 在 `usapp_test` 通过负责人执行的验证；2026-10-10 已应用到主库）
 
-- 验证结果与局限见 [docs/phase1-m3-design.md](../docs/phase1-m3-design.md) 第 11.3 节。`0007_tasks_one_off.sql` 已在测试库 `usapp_test` 应用，**禁止修改**（SHA-256 `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`）；尚无主库应用记录。
+- 验证结果与局限见 [docs/phase1-m3-design.md](../docs/phase1-m3-design.md) 第 11.3 节。`0007_tasks_one_off.sql` 已在测试库 `usapp_test` 应用，**禁止修改**（SHA-256 `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`）。2026-10-10 负责人在新鲜备份与（按基本计数核对的）恢复检查之后，以 `-InitRoles` 将 0007 应用到主库，校验和一致，重复 `-InitRoles` 后权限检查不变（见 `docs/phase1-m3-design.md` 第 12.9 节）。0007 现已在测试库与主库应用，**禁止修改**。
 - 该验证覆盖迁移、权限、CTest 与两份 psql 脚本；不包含任务服务或接口、真实结算服务，也不包含针对已提交结算的跨事务攻击测试（属于 M3-B/M3-C）。
+- M3-B（任务发布与读取）不新增迁移，但 API 运行时启动时会检查任务表权限矩阵，缺少 0007 或权限不符即拒绝启动。
+  2026-10-10 主库已按 `docs/phase1-m3-design.md` 第 12.8 节的顺序应用 0007 并部署 M3-B 运行时（启动时钱包与任务权限检查均为 ok=true）。
+- M3-B 的 db_gated 测试会在 `usapp_test` 中**永久提交**按次隔离的任务夹具（`@m3-fixture.test` 域名的用户、
+  空间、任务与 `task.created` 审计；不含钱包行）。此后“`usapp_test` 中没有 `tasks` 行”不再成立，
+  检查应按夹具标识过滤。
 
 - `0007_tasks_one_off.sql`：一次性任务 `tasks`（发布后不可修改）与完成记录 `task_completions`（只追加，每个任务至多一条）。
 - 奖励为整数：小红花 0-999、阳光值 0-100000，且至少一项为正数；标题去首尾空白后 1-40 个码点、无控制字符与换行；描述最多 500 个码点，允许 LF，不允许 CR 与其他控制字符；时区仅支持 `Asia/Shanghai`，`deadline_at` 必须与本地日期/时间一致（只有日期时为次日 0 点）。

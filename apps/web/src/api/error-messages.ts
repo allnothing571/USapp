@@ -27,6 +27,10 @@ const MESSAGES: Record<KnownCode, string> = {
   ALREADY_IN_SPACE: '你已经在一个空间里了。',
   NOT_FOUND: '请求的资源不存在。',
   INTERNAL_ERROR: '服务暂时不可用，请稍后再试。',
+  TASK_NOT_FOUND: '任务不存在，或不属于你所在的空间。',
+  PARTNER_REQUIRED: '需要对方加入空间后才能发布任务。',
+  IDEMPOTENCY_KEY_REUSED: '这次提交与之前的请求冲突，请重新填写后再发布。',
+  RESULT_UNKNOWN: '结果未确认，可以重试；重试不会重复发布。',
 
   // —— 前端合成码 ——
   NETWORK_ERROR: '网络不可用，请检查网络连接后重试。',

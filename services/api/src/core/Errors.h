@@ -29,6 +29,11 @@ enum class ErrorCode {
     AlreadyInSpace,
     NotFound,
     InternalError,
+    // 阶段 1 M3-B（契约 0.4.0）：任务发布与读取。
+    TaskNotFound,
+    PartnerRequired,
+    IdempotencyKeyReused,
+    ResultUnknown,
 };
 
 // 与 OpenAPI 中 error.code 枚举完全一致的稳定字符串。

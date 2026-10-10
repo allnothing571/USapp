@@ -17,6 +17,7 @@ import { ApiError } from '@/api/client'
 import { setCsrfToken } from '@/api/csrf'
 import type { EmailCodeAccepted, SessionBootstrap, Space, User } from '@/api/types'
 import { useSpaceStore } from './space'
+import { useTasksStore } from './tasks'
 import { useWalletStore } from './wallet'
 
 /** 会话状态机：unknown（未引导）→ anonymous | authenticated。 */
@@ -47,6 +48,7 @@ export const useSessionStore = defineStore('session', () => {
   function applyBootstrap(payload: SessionBootstrap): void {
     if (!payload.authenticated || user.value?.id !== payload.user?.id) {
       useWalletStore().reset()
+      useTasksStore().reset()
     }
     csrfToken.value = payload.csrf_token
     setCsrfToken(payload.csrf_token)
@@ -81,6 +83,7 @@ export const useSessionStore = defineStore('session', () => {
     // 其它业务 store 的清理入口统一登记在这里。
     useSpaceStore().reset()
     useWalletStore().reset()
+    useTasksStore().reset()
   }
 
   let inFlight: Promise<void> | null = null
@@ -143,7 +146,10 @@ export const useSessionStore = defineStore('session', () => {
   /** 用 `GET /api/v1/me` 刷新用户与空间快照。 */
   async function refreshMe(): Promise<void> {
     const payload = await authApi.getMe()
-    if (user.value?.id !== payload.user.id) useWalletStore().reset()
+    if (user.value?.id !== payload.user.id) {
+      useWalletStore().reset()
+      useTasksStore().reset()
+    }
     user.value = payload.user
     space.value = payload.space ?? null
     useSpaceStore().hydrate(payload.space ?? null)
@@ -157,7 +163,10 @@ export const useSessionStore = defineStore('session', () => {
   async function updateDisplayName(displayName: string): Promise<void> {
     await ensureCsrfToken()
     const payload = await authApi.updateMe({ display_name: displayName })
-    if (user.value?.id !== payload.user.id) useWalletStore().reset()
+    if (user.value?.id !== payload.user.id) {
+      useWalletStore().reset()
+      useTasksStore().reset()
+    }
     user.value = payload.user
     space.value = payload.space ?? null
     useSpaceStore().hydrate(payload.space ?? null)
