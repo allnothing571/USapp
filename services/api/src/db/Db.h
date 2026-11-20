@@ -78,6 +78,13 @@ class TxScope : public std::enable_shared_from_this<TxScope> {
     static void begin(std::function<void(std::shared_ptr<TxScope>)> onReady,
                       ErrorHandler onError);
 
+    // The non-blocking form, for callers already on a database event-loop thread. begin() waits for a free
+    // connection on the calling thread: from a commit or rollback callback that stops the very loop which must
+    // finish that work and return its connection. Waits in the pool's queue instead; onError on the client's timeout.
+    static void beginAsync(std::function<void(std::shared_ptr<TxScope>)> onReady, ErrorHandler onError);
+    // Explicit-client variant for maintenance recovery. Never obtains or changes application credentials.
+    static void beginOnClientAsync(ClientPtr client, std::function<void(std::shared_ptr<TxScope>)> onReady, ErrorHandler onError);
+
     drogon::orm::Transaction &tx() {
         if (settled_ || !tx_) {
             throw std::logic_error("事务作用域已经结束");

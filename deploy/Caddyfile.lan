@@ -1,0 +1,215 @@
+# =====================================================================
+# USapp 局域网 HTTPS 变体（Android 同一 Wi-Fi 访问；deploy/LOCAL-HTTPS.md 第 8 节）
+#
+# 只通过 deploy/docker-compose.lan.yml 覆盖挂载到 /etc/caddy/Caddyfile；基础 deploy/Caddyfile 不变。
+# 与基础文件相比只有三处不同，其余（安全头、缓存规则、路由、管理路径拦截、管理站点）逐字相同：
+#   1) 全局 default_sni 192.168.1.55：按 IP 访问时客户端不发送 SNI，没有它 Caddy 无证书可选
+#      （这正是 Android 上 ERR_SSL_PROTOCOL_ERROR 的原因）；
+#   2) 公开站点地址改为 https://192.168.1.55:8443（tls internal 为该 IP 签发证书，
+#      仍由同一个本地 CA 签发，不轮换 CA），与 API 的 PUBLIC_ORIGIN 完全一致；
+#   3) https://localhost:8443 只做 308 跳转到规范地址，不再提供网页，避免本机在一个
+#      写请求必然被 Origin 校验拒绝的地址上使用应用。
+# 管理站点仍是 https://localhost:8444，仅发布在宿主回环。
+# 局域网地址变化时（DHCP），必须同时修改本文件三处与 docker-compose.lan.yml 的 PUBLIC_ORIGIN。
+# =====================================================================
+
+# =====================================================================
+# USapp 阶段 0 —— Caddy 配置（公开站点 + 管理站点，两个都经同源反代）
+#
+# 挂载位置：容器内 /etc/caddy/Caddyfile（只读），见 deploy/docker-compose.yml
+# 状态：尚未在真实环境中加载验证（未执行 docker compose up，未做过任何一次请求）。
+#       若负责人实际使用，请把加载结果与失败信息回填到 docs/phase0-handoff.md。
+#
+# ---------------------------------------------------------------------
+# 为什么是两个站点而不是一个站点加两个子路径
+# ---------------------------------------------------------------------
+# 阶段 0 的硬要求是"管理入口绑定回环地址"。如果管理面挂在与公开站点相同的
+# 8443 上，那么只要 8443 发布在 0.0.0.0，管理入口就随之外泄，违反该要求。
+# 因此拆成：
+#   * https://localhost:8443 —— 公开站点：PWA 静态资源 + /api/v1/**。
+#     该站点【不代理也不提供】任何管理路径，命中 /api/admin/* 与 /admin/*
+#     一律直接 404，避免它们落到公开监听器上（Drogon 的两个监听器共享同一份
+#     路由表，公开监听器其实也能处理管理路由，必须在入口处拦住）。
+#   * https://localhost:8444 —— 管理站点：管理 API + 管理界面 SPA。
+#     回环约束由三处共同保证：
+#       1) deploy/docker-compose.yml 对该端口只做 "127.0.0.1:8444:8444" 发布，
+#          不对 0.0.0.0 开放（容器内 Caddy 监听 0.0.0.0，这是 docker-proxy
+#          能连上的唯一方式；真正的限制在宿主侧发布地址上）；
+#       2) 站点地址写成 localhost:8444，Host 头不是 localhost:8444 的请求
+#          不会被该站点处理；
+#       3) 本站点对每个请求注入 X-Usapp-Admin-Surface: usapp-admin，
+#          应用侧 AdminFilter 要求该头存在（公网站点显式剥除伪造的同名头）。
+#
+# ---------------------------------------------------------------------
+# 其它要点
+# ---------------------------------------------------------------------
+#   * 证书使用 Caddy 内置本地 CA（tls internal）。该 CA 不会被自动信任，
+#     必须由负责人手动导入操作系统信任库；步骤见 deploy/LOCAL-HTTPS.md。
+#   * /api/** 的 Cache-Control 由应用决定（业务响应必须是 no-store）。
+#     本文件对 /api/** 不设置任何与缓存相关的响应头，也不对其启用 encode，
+#     以免覆盖或改写应用已经写好的缓存语义。
+#   * 本文件不使用任何公网证书申请（ACME / Let's Encrypt）。
+#   * 不给任何路径加 CORS 头：同源架构下前端不跨域，放开 CORS 只会扩大攻击面。
+# =====================================================================
+
+{
+	# 站点监听 8443/8444，不使用 80 → 443 的自动跳转（阶段 0 不发布 80 端口）。
+	# TODO(负责人)：若所用的 caddy:2-alpine 版本不接受该全局选项，
+	#               直接删除这一行即可，对 8443/8444 站点没有影响。
+	auto_https disable_redirects
+
+	# 局域网变体：按 IP 访问时没有 SNI，使用该名称选择证书。
+	default_sni 192.168.1.55
+}
+
+# ---------------------------------------------------------------------
+# 可复用片段：基线安全响应头
+#
+# 刻意只作用于非 /api 路径：/api/** 的响应头由应用全权负责，
+# Caddy 不参与，以免与应用设置的 Cache-Control: no-store 相互覆盖。
+# ---------------------------------------------------------------------
+(baseline_headers) {
+	@static not path /api/*
+	header @static {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+
+		# CSP 说明（阶段 0 有意偏宽松，后续必须收紧）：
+		#  - 'unsafe-inline' 只出现在 style-src：Vite 产物与 Vue 运行时可能注入内联样式，
+		#    阶段 0 还没有构建期的 nonce/hash 流水线。
+		#  - script-src 保持 'self'，不含 'unsafe-inline' 与 'unsafe-eval'。
+		#  - worker-src 'self' 供 Service Worker（/sw.js）注册，缺了它 PWA 无法安装。
+		#  - connect-src 'self' 与"同源"架构一致：前端不访问任何第三方域。
+		#  后续收紧方向：
+		#    1) 为 script/style 引入构建期 hash 或 nonce，去掉 'unsafe-inline'；
+		#    2) 接入图片直传私有 OSS 后，为 img-src / connect-src 增加该域名；
+		#    3) 视需要加 report-to / report-uri 收集违规。
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self'; manifest-src 'self'; connect-src 'self'"
+	}
+}
+
+# =====================================================================
+# 站点 1：公开站点 https://192.168.1.55:8443（局域网规范地址，等于 PUBLIC_ORIGIN）
+# =====================================================================
+https://192.168.1.55:8443 {
+	tls internal
+	import baseline_headers
+
+	# 客户端伪造的管理面入口标记必须被剥掉：这个头只能由 8444 站点注入。
+	request_header -X-Usapp-Admin-Surface
+
+	# ---------------- 静态资源缓存策略（与 /api 无关）----------------
+	# Vite 产出的 assets/ 文件名带内容哈希，可以长缓存。
+	@hashed path /assets/* /icons/* /favicon.svg /apple-touch-icon.png
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# 入口 HTML、Service Worker 与 manifest 必须每次回源校验，
+	# 否则新版本永远拿不到，registerType: 'prompt' 的更新流程会失效。
+	@noCache path / /index.html /sw.js /registerSW.js /manifest.webmanifest
+	header @noCache Cache-Control "no-cache"
+
+	# =================================================================
+	# 路由顺序说明：
+	#   Caddy 的 handle / handle_path 会按 path 匹配的具体程度排序执行，
+	#   不依赖书写先后。本文件仍按"最具体 → 最宽泛"书写以便阅读。
+	#   同时注意：Caddy 绝不剥离 /api 前缀 —— 应用的契约路由本身就是 /api/v1/...。
+	# =================================================================
+
+	# ---- 1) 管理路径在公开站点上根本不存在 ----
+	# 写在 /api/* 之前只是为了可读性；Caddy 按具体程度匹配，前者更具体。
+	# 为什么必须显式拒绝而不是"反正没有这个目录"：
+	#   Drogon 的两个监听器共享同一份路由表，公开监听器同样能处理
+	#   /api/admin/**。若只靠"本文件没写这条代理"，一旦有人日后改成
+	#   handle /api/* 统一代理，管理面就会经公开端口可达。
+	handle /api/admin/* {
+		respond 404
+	}
+	handle /admin/* {
+		respond 404
+	}
+
+	# ---- 2) 业务 API：/api/* → api 的公开监听器（容器内 8080）----
+	# 该端口号必须与 .env 的 API_PUBLIC_PORT 以及 docker-compose.yml 的覆盖值保持一致。
+	# 业务响应的 Cache-Control: no-store 由应用负责；
+	# Caddy 在这里只做透传，不添加任何覆盖它的响应头。
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	# ---- 3) 客户端 PWA：/ → /srv/web（含 SPA 回退）----
+	# 这是兜底，任何未匹配的路径都回退到 index.html 交给前端路由。
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# =====================================================================
+# 站点 1b：https://localhost:8443 只跳转到规范地址（不提供网页、不代理 API）
+# =====================================================================
+https://localhost:8443 {
+	tls internal
+	redir https://192.168.1.55:8443{uri} 308
+}
+
+# =====================================================================
+# 站点 2：管理站点 https://localhost:8444
+#
+# 只在宿主回环上发布（deploy/docker-compose.yml 的 "127.0.0.1:8444:8444"）。
+# 这里【不写 bind 127.0.0.1】是刻意的：在容器里绑回环会让 docker-proxy
+# 连不上（它连的是容器网卡地址），结果是管理面彻底不可达而不是更安全。
+# 回环约束由宿主侧端口发布 + 本站点的 Host 匹配共同承担。
+# =====================================================================
+https://localhost:8444 {
+	tls internal
+	import baseline_headers
+
+	# 管理面入口标记：应用侧 AdminFilter 要求该头，公网站点会剥除它。
+	request_header X-Usapp-Admin-Surface usapp-admin
+
+	# ---------------- /admin 缺尾斜杠时补 308 ----------------
+	redir /admin /admin/ 308
+
+	# ---------------- 静态资源缓存策略 ----------------
+	# 管理界面用 handle_path 剥掉 /admin 前缀后才查文件，
+	# 但 header 匹配发生在前缀剥离之前，所以这里必须写 /admin/assets/*。
+	@hashed path /admin/assets/* /admin/icons/* /admin/favicon.svg
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	@noCache path /admin/ /admin/index.html /admin/sw.js /admin/manifest.webmanifest
+	header @noCache Cache-Control "no-cache"
+
+	# ---- 1) 管理 API：/api/admin/* → api 的管理监听器（容器内 8081）----
+	# 为什么 Caddy 层不做来源 IP 限制：
+	#   本编排中所有请求的 TCP 对端都是 caddy 容器本身（管理员浏览器并不直连 api），
+	#   对 Caddy 而言 remote_ip 永远不是管理员的真实地址，
+	#   因此无法在 Caddy 层区分"管理员来源"，任何 remote_ip 规则都只是摆设。
+	#   真正的来源边界在应用层：api 以 TCP 对端地址再次校验 ADMIN_ALLOWED_CIDRS
+	#   （.env.example 默认包含 compose 固定子网 172.28.0.0/16）。
+	# 安全提醒：api 绝不能把 X-Forwarded-For 当作来源地址，否则该边界可被伪造绕过。
+	# 注意：不重写路径、不加缓存头、不启用 encode。
+	handle /api/admin/* {
+		reverse_proxy api:8081
+	}
+
+	# ---- 2) 管理界面 SPA：/admin/* → /srv/admin ----
+	# apps/admin 的 Vite base 是 /admin/，dist 根目录下就是 assets/ 与 index.html，
+	# 所以必须用 handle_path 把 /admin 前缀剥掉再查文件；
+	# 否则会去找 /srv/admin/admin/... 而全部 404。
+	# 管理员的访问地址：https://localhost:8444/admin/
+	handle_path /admin/* {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	# ---- 3) 其它路径一律 404 ----
+	# 管理站点只提供管理面，不做任何到 PWA 的回退：
+	# 回退会让 https://localhost:8444/ 看起来像一个正常应用，掩盖配置错误。
+	handle {
+		respond 404
+	}
+}

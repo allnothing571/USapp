@@ -16,9 +16,31 @@ import * as authApi from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { setCsrfToken } from '@/api/csrf'
 import type { EmailCodeAccepted, SessionBootstrap, Space, User } from '@/api/types'
+import { useNotificationsStore } from './notifications'
+import { useRemindersStore } from './reminders'
+import { useAnniversariesStore } from './anniversaries'
+import { useAlbumsStore } from './albums'
+import { useSharedPlansStore } from './shared-plans'
+import { useMemoryDeletionsStore } from './memory-deletions'
+import { useMediaDeletionsStore } from './media-deletions'
+import { useMemoriesStore } from './memories'
+import { useUnattachedStore } from './unattached'
+import { useMediaCapabilityStore } from './media-capability'
+import { useMemoryUploadsStore } from './memory-uploads'
+import { useHomeStore } from './home'
+import { useTaskReactionsStore } from './task-reactions'
+import { useMessagesStore } from './messages'
+import { useNotificationChoicesStore } from './notification-choices'
+import { usePushStore } from './push'
+import { clearMarker } from '@/pwa/push-marker'
 import { useSpaceStore } from './space'
+import { StaleSessionError } from './stale'
+import { useRewardsStore } from './rewards'
 import { useTasksStore } from './tasks'
 import { useWalletStore } from './wallet'
+import { useAvatarStore } from './avatar'
+import { useAchievementsStore } from './achievements'
+import { useExportStore } from './export'
 
 /** 会话状态机：unknown（未引导）→ anonymous | authenticated。 */
 export type SessionStatus = 'unknown' | 'anonymous' | 'authenticated'
@@ -42,13 +64,64 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
+   * 身份代数（M10 修复）：每次身份变化（匿名、换账号、注销、引导失败）递增。
+   * 异步写入在发出前与落地前都核对发起时的代数与用户；不符则丢弃结果（StaleSessionError），
+   * 旧响应不能恢复旧用户、不能在新账号下提交旧草稿，旧的注销完成也不能清空新会话。
+   */
+  let identityGeneration = 0
+
+  interface IdentityToken {
+    generation: number
+    userId: string | null
+  }
+
+  function identityToken(): IdentityToken {
+    return { generation: identityGeneration, userId: user.value?.id ?? null }
+  }
+
+  function isCurrentIdentity(token: IdentityToken): boolean {
+    return token.generation === identityGeneration && token.userId === (user.value?.id ?? null)
+  }
+
+  /**
+   * Identity changed: invalidate in-flight work and clear every per-identity store, invitations included.
+   * P2-5a: the persistent device marker is cleared too, except on a first load (no identity known
+   * in memory yet), where the push store reconciles it against the account's generations instead.
+   */
+  function resetIdentityScoped(clearDeviceMarker = true): void {
+    identityGeneration += 1
+    useSpaceStore().reset()
+    useWalletStore().reset()
+    useAvatarStore().reset()
+    useAchievementsStore().reset()
+    useExportStore().reset()
+    useTasksStore().reset()
+    useRewardsStore().reset()
+    useHomeStore().reset()
+    useMessagesStore().reset()
+    useTaskReactionsStore().reset()
+    useAnniversariesStore().reset()
+    useMemoriesStore().reset()
+    useAlbumsStore().reset()
+    useMediaDeletionsStore().reset()
+    useSharedPlansStore().reset()
+    useMemoryDeletionsStore().reset()
+    useMemoryUploadsStore().reset()
+    useUnattachedStore().reset()
+    useMediaCapabilityStore().reset()
+    useNotificationChoicesStore().reset()
+    useNotificationsStore().reset()
+    useRemindersStore().reset()
+    usePushStore().reset(clearDeviceMarker)
+  }
+
+  /**
    * 把服务端 SessionBootstrap 落到 store。
    * 同时负责：CSRF 令牌轮换落库、space store 的 hydrate/reset。
    */
   function applyBootstrap(payload: SessionBootstrap): void {
     if (!payload.authenticated || user.value?.id !== payload.user?.id) {
-      useWalletStore().reset()
-      useTasksStore().reset()
+      resetIdentityScoped(!(payload.authenticated && user.value === null))
     }
     csrfToken.value = payload.csrf_token
     setCsrfToken(payload.csrf_token)
@@ -80,38 +153,49 @@ export const useSessionStore = defineStore('session', () => {
     preAuthExpiresAt.value = null
     setCsrfToken(null)
     status.value = 'anonymous'
-    // 其它业务 store 的清理入口统一登记在这里。
-    useSpaceStore().reset()
-    useWalletStore().reset()
-    useTasksStore().reset()
-  }
-
-  let inFlight: Promise<void> | null = null
-
-  async function runBootstrap(): Promise<void> {
-    try {
-      const payload = await authApi.bootstrapSession()
-      applyBootstrap(payload)
-    } catch (error) {
-      // 引导失败时**不臆造**已登录状态，也保留不任何业务数据：fail closed。
-      console.warn('[usapp/session] 会话引导失败，已按未认证处理。', error)
-      resetBusinessState()
-    } finally {
-      bootstrapped.value = true
-    }
+    // 其它业务 store 的清理入口统一登记在 resetIdentityScoped()。
+    resetIdentityScoped()
   }
 
   /**
-   * `GET /api/v1/session`。并发调用会复用同一个在途请求；
+   * 在途引导与发起它时的身份。身份在等待期间被别处改变（注销、登录了另一个账号）后，
+   * 这次引导就过期了：它的成功与失败都不再写入任何状态（不应用快照、不清空、不改 bootstrapped），
+   * 后来的调用也不再复用它，而是发起新的引导；过期引导的收尾也不会清掉更新的在途引导。
+   */
+  let inFlight: { promise: Promise<void>; token: IdentityToken } | null = null
+  let bootstrapSeq = 0
+
+  async function runBootstrap(seq: number, token: IdentityToken): Promise<void> {
+    const stillCurrent = () => seq === bootstrapSeq && isCurrentIdentity(token)
+    let payload: SessionBootstrap
+    try {
+      payload = await authApi.bootstrapSession()
+    } catch (error) {
+      if (!stillCurrent()) return
+      // 引导失败时**不臆造**已登录状态，也保留不任何业务数据：fail closed。
+      console.warn('[usapp/session] 会话引导失败，已按未认证处理。', error)
+      resetBusinessState()
+      bootstrapped.value = true
+      return
+    }
+    if (!stillCurrent()) return
+    applyBootstrap(payload)
+    bootstrapped.value = true
+  }
+
+  /**
+   * `GET /api/v1/session`。并发调用会复用同一个（仍属于当前身份的）在途请求；
    * 已经引导过则默认直接返回，`force: true` 可强制重新引导。
    */
   function bootstrap(force = false): Promise<void> {
-    if (inFlight) return inFlight
-    if (bootstrapped.value && !force) return Promise.resolve()
-    inFlight = runBootstrap().finally(() => {
-      inFlight = null
+    if (inFlight && isCurrentIdentity(inFlight.token)) return inFlight.promise
+    if (bootstrapped.value && !force && !inFlight) return Promise.resolve()
+    const token = identityToken()
+    const promise: Promise<void> = runBootstrap(++bootstrapSeq, token).finally(() => {
+      if (inFlight?.promise === promise) inFlight = null
     })
-    return inFlight
+    inFlight = { promise, token }
+    return promise
   }
 
   /** 写请求前确保手里有 CSRF 令牌；没有就先引导一次。 */
@@ -145,10 +229,17 @@ export const useSessionStore = defineStore('session', () => {
 
   /** 用 `GET /api/v1/me` 刷新用户与空间快照。 */
   async function refreshMe(): Promise<void> {
-    const payload = await authApi.getMe()
+    const token = identityToken()
+    let payload
+    try {
+      payload = await authApi.getMe()
+    } catch (error) {
+      if (!isCurrentIdentity(token)) throw new StaleSessionError()
+      throw error
+    }
+    if (!isCurrentIdentity(token)) throw new StaleSessionError()
     if (user.value?.id !== payload.user.id) {
-      useWalletStore().reset()
-      useTasksStore().reset()
+      resetIdentityScoped()
     }
     user.value = payload.user
     space.value = payload.space ?? null
@@ -159,13 +250,23 @@ export const useSessionStore = defineStore('session', () => {
    * `PATCH /api/v1/me` —— 修改自己的昵称。
    * 只有服务端确认成功后才用返回的快照更新 user 与成员槽位；
    * 任何失败（校验、离线、网络、CSRF）都原样抛出，本地状态保持不变。
+   * 身份在等待 CSRF 令牌或响应期间变化时：不发出旧草稿、不应用旧响应，抛 StaleSessionError。
    */
   async function updateDisplayName(displayName: string): Promise<void> {
-    await ensureCsrfToken()
-    const payload = await authApi.updateMe({ display_name: displayName })
+    const token = identityToken()
+    if (!token.userId) throw new StaleSessionError()
+    let payload
+    try {
+      await ensureCsrfToken()
+      if (!isCurrentIdentity(token)) throw new StaleSessionError()
+      payload = await authApi.updateMe({ display_name: displayName })
+    } catch (error) {
+      if (!isCurrentIdentity(token)) throw error instanceof StaleSessionError ? error : new StaleSessionError()
+      throw error
+    }
+    if (!isCurrentIdentity(token)) throw new StaleSessionError()
     if (user.value?.id !== payload.user.id) {
-      useWalletStore().reset()
-      useTasksStore().reset()
+      resetIdentityScoped()
     }
     user.value = payload.user
     space.value = payload.space ?? null
@@ -184,15 +285,25 @@ export const useSessionStore = defineStore('session', () => {
    * 无论服务端是否成功撤销，本地业务态一律清空——否则离线或网络故障会把用户
    * 锁在"看起来已登录"的状态里。但服务端撤销失败时**不谎报成功**：
    * 打印警告，且此时服务端会话可能仍然有效，由负责人按需处理。
+   *
+   * 返回值表示本次注销是否清空了发起时的会话；等待期间身份已经变化（例如已经登录了新账号）时，
+   * 旧的注销完成不清空新会话，返回 false，调用方也不应跳转到登录页。
    */
-  async function logout(): Promise<void> {
+  async function logout(): Promise<boolean> {
+    const token = identityToken()
     let serverError: unknown = null
+    let cleared = false
+    // P2-5a: the device marker is cleared at logout initiation, before the server call.
+    void clearMarker()
     try {
       await authApi.deleteSession()
     } catch (error) {
       serverError = error
     } finally {
-      resetBusinessState()
+      if (isCurrentIdentity(token)) {
+        resetBusinessState()
+        cleared = true
+      }
     }
 
     if (serverError) {
@@ -202,6 +313,7 @@ export const useSessionStore = defineStore('session', () => {
         serverError,
       )
     }
+    return cleared
   }
 
   return {

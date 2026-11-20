@@ -257,11 +257,26 @@ inline FailureCode parseFailure(const std::string &error) {
 // ---------------------------------------------------------------- 观察者
 // 独立 DbClient（不属于工作连接池）。只用于观察其他连接上的事务状态与已提交数据。
 struct Observer {
+private:
+    // The owning test thread keeps this anchor through closeAll(). A sync query may wake that thread before Drogon
+    // disposes its timeout/callback objects; a bare shared_ptr reset can otherwise make DbLoop destroy/join itself.
+    // Observer scopes (including copies) belong to test-owner threads, never database callbacks.
+    struct Lifetime {
+        explicit Lifetime(ClientPtr value) : client(std::move(value)) {}
+        ~Lifetime() { client->closeAll(); }
+        ClientPtr client;
+    };
+    // Declared before client: on the final Observer's destruction its public reference is dropped FIRST, while the anchor
+    // still owns the client. Copies share one anchor; assignment closes the replaced client's anchor before dropping it.
+    std::shared_ptr<Lifetime> lifetime;
+
+public:
     ClientPtr client;
 
     static Observer connect(const std::string &dsn) {
         Observer observer;
         observer.client = drogon::orm::DbClient::newPgClient(dsn, 1);
+        observer.lifetime = std::make_shared<Lifetime>(observer.client);
         observer.client->setTimeout(5.0);
         // 连接异步建立：用有界重试确认可用，不打印连接串。
         const auto deadline = std::chrono::steady_clock::now() + kTeardownTimeout;

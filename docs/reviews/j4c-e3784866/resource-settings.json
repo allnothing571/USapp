@@ -1,0 +1,67 @@
+{
+  "bucket": {
+    "acceleration": false,
+    "acl": "private",
+    "block_public_access": true,
+    "cors": false,
+    "encryption": "AES256",
+    "lifecycle": false,
+    "name": "usapp-j4c-log-e3784866",
+    "redundancy": "LRS",
+    "region": "cn-shanghai",
+    "replication": false,
+    "retention_lock": false,
+    "retention_policy": false,
+    "storage_class": "Standard",
+    "versioning": "never_enabled"
+  },
+  "budget": {
+    "automatic_billing_cap": false,
+    "cny": 5
+  },
+  "cloud_calls_allowed": false,
+  "creation_authorized": false,
+  "declared_owner_uid": "1567452047414069",
+  "identities": {
+    "checkpoint-writer": "usapp-j4c-e3784866-checkpoint-writer",
+    "object-publisher": "usapp-j4c-e3784866-object-publisher",
+    "recovery-reader": "usapp-j4c-e3784866-recovery-reader"
+  },
+  "status": "proposal_only",
+  "table": {
+    "allow_update": true,
+    "billing": "CU",
+    "instance": "uj4ce3784866",
+    "local_transactions": true,
+    "max_versions": 1,
+    "name": "journal",
+    "primary_keys": [
+      [
+        "journal_id",
+        "STRING"
+      ],
+      [
+        "row_type",
+        "STRING"
+      ],
+      [
+        "row_id",
+        "STRING"
+      ]
+    ],
+    "region": "cn-shanghai",
+    "reserved_read": 0,
+    "reserved_write": 0,
+    "secondary_indexes": false,
+    "tier": "high_performance",
+    "time_to_live": -1
+  },
+  "test_bounds": {
+    "enforced_by_this_package": false,
+    "max_batches": 20,
+    "max_object_bytes": 2097152,
+    "max_operations": 10,
+    "proposal_only": true,
+    "window_hours": 2
+  }
+}

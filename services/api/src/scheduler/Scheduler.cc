@@ -241,7 +241,9 @@ void Scheduler::runJob(const std::shared_ptr<SchedulerJob> &job, JobTickCallback
         }
     };
 
-    db::TxScope::begin(
+    // Non-blocking: from the second job on, this runs inside the previous job's commit or rollback callback, on a
+    // database event-loop thread that must return first.
+    db::TxScope::beginAsync(
         [this, job, jobKey, key, instanceId, finish](std::shared_ptr<db::TxScope> scope) {
             // 第 1 步：在这一条连接、这一个事务上尝试取锁。
             scope->tx().execSqlAsync(

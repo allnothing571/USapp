@@ -89,14 +89,17 @@ async function onReset(): Promise<void> {
               <th>显示名</th>
               <th>状态</th>
               <th>注册时间</th>
+              <th>钱包</th>
+              <th>会话</th>
+              <th>通知</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="list.loading.value">
-              <td class="empty-row" colspan="5">加载中…</td>
+              <td class="empty-row" colspan="8">加载中…</td>
             </tr>
             <tr v-else-if="list.isEmpty.value">
-              <td class="empty-row" colspan="5">没有数据</td>
+              <td class="empty-row" colspan="8">没有数据</td>
             </tr>
             <template v-else>
               <tr v-for="item in list.items.value" :key="item.id">
@@ -105,6 +108,12 @@ async function onReset(): Promise<void> {
                 <td>{{ item.display_name }}</td>
                 <td><span class="tag">{{ item.status }}</span></td>
                 <td class="cell-time">{{ formatDateTime(item.created_at) }}</td>
+                <td>
+                  <RouterLink :to="{ name: 'user-wallet', params: { userId: item.id } }" :data-test="`wallet-${item.id}`">
+                    查看（只读）
+                  </RouterLink>
+                </td>
+                <td><RouterLink :to="{ name: 'user-sessions', params: { userId: item.id } }">查看会话（只读）</RouterLink></td>
               </tr>
             </template>
           </tbody>

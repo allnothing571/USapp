@@ -50,7 +50,7 @@ function warnIfNotSameOrigin(): void {
 warnIfNotSameOrigin()
 
 /** 前端合成的错误码（**不会**由服务端返回），与契约枚举严格区分开。 */
-export type ClientErrorCode = 'NETWORK_ERROR' | 'OFFLINE_MUTATION_BLOCKED'
+export type ClientErrorCode = 'NETWORK_ERROR' | 'OFFLINE_MUTATION_BLOCKED' | 'DOWNLOAD_STREAM_UNSUPPORTED'
 
 /** 契约枚举 ∪ 前端合成码。 */
 export type ErrorCode = ServerErrorCode | ClientErrorCode
@@ -224,6 +224,136 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     return JSON.parse(text) as T
   } catch {
     throw new ApiError('INTERNAL_ERROR', '响应不是合法 JSON。', response.status)
+  }
+}
+
+/**
+ * E1 export: the most body bytes the application accumulates (the server's exact cap). This bounds what this code reads and keeps;
+ * it does not bound the browser's or the transport's own buffering below the stream.
+ */
+export const MAX_DOWNLOAD_BYTES = 16 * 1024 * 1024
+
+export interface DownloadedFile {
+  blob: Blob
+  /** The server's attachment name when it is a plain file name; null otherwise. */
+  filename: string | null
+  bytes: number
+}
+
+export interface DownloadOptions {
+  method?: 'POST'
+  body?: unknown
+  signal?: AbortSignal
+  maxBytes?: number
+}
+
+function attachmentName(disposition: string | null): string | null {
+  const match = /filename="([A-Za-z0-9._-]{1,128})"/.exec(disposition ?? '')
+  return match ? match[1] : null
+}
+
+/**
+ * A narrowly scoped write that returns the raw response body instead of parsed JSON (E1 user-data export).
+ * Same guards and order as request(): offline refusal, then CSRF, then a same-origin fetch; error envelopes are parsed the same way.
+ * request() itself is unchanged. A 429 carries Retry-After in details.retry_after_seconds.
+ */
+export async function requestDownload(path: string, options: DownloadOptions = {}): Promise<DownloadedFile> {
+  const method = options.method ?? 'POST'
+  const maxBytes = options.maxBytes ?? MAX_DOWNLOAD_BYTES
+  if (isOffline()) throw new OfflineMutationBlockedError()
+  const token = getCsrfToken()
+  if (!token) {
+    throw new ApiError('CSRF_TOKEN_INVALID', '缺少 CSRF 令牌，写请求未发出。请先通过 GET /api/v1/session 建立会话。', 403)
+  }
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-CSRF-Token': token }
+  const init: RequestInit = { method, headers, credentials: 'same-origin' }
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    init.body = JSON.stringify(options.body)
+  }
+  if (options.signal) init.signal = options.signal
+
+  let response: Response
+  try {
+    response = await fetch(buildUrl(path), init)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    throw new ApiError('NETWORK_ERROR', '网络请求失败，未收到服务端响应。', 0)
+  }
+  if (!response.ok) {
+    const failure = await toApiError(response)
+    const retry = Number(response.headers?.get('Retry-After'))
+    if (response.status === 429 && Number.isFinite(retry) && retry > 0) {
+      throw new ApiError(failure.code, failure.message, failure.status, { ...(failure.details ?? {}), retry_after_seconds: retry })
+    }
+    throw failure
+  }
+  const tooLarge = () => new ApiError('EXPORT_TOO_LARGE', '文件超过浏览器端的接收上限，已放弃。', response.status)
+  // A declared length above the cap: refuse without consuming, and cancel the body. A smaller or missing declaration is not trusted.
+  const declaredHeader = response.headers?.get('Content-Length')
+  const declared = declaredHeader === null || declaredHeader === undefined || declaredHeader === '' ? NaN : Number(declaredHeader)
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await cancelBody(response.body)
+    throw tooLarge()
+  }
+  // Read incrementally and count the actual bytes. No unbounded fallback: without a readable stream the download fails clearly.
+  const stream = response.body
+  if (!stream || typeof stream.getReader !== 'function') {
+    throw new ApiError('DOWNLOAD_STREAM_UNSUPPORTED', '当前浏览器无法按上限分块接收导出文件，已放弃。', response.status)
+  }
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    if (options.signal?.aborted) {
+      await cancelReader(reader)
+      throw abortError()
+    }
+    let step: ReadableStreamReadResult<Uint8Array>
+    try {
+      step = await reader.read()
+    } catch (error) {
+      await cancelReader(reader)
+      if ((error instanceof Error || error instanceof DOMException) && error.name === 'AbortError') throw error
+      throw new ApiError('NETWORK_ERROR', '接收导出文件时中断，没有保存任何文件。', 0)
+    }
+    if (step.done) break
+    const chunk = step.value
+    if (!chunk) continue
+    // Stop before the chunk that would cross the cap: nothing past the limit is kept, and the body is cancelled.
+    if (total + chunk.byteLength > maxBytes) {
+      await cancelReader(reader)
+      throw tooLarge()
+    }
+    chunks.push(chunk)
+    total += chunk.byteLength
+  }
+  if (options.signal?.aborted) throw abortError()
+  const type = response.headers?.get('Content-Type') ?? 'application/json'
+  const blob = new Blob(chunks as BlobPart[], { type })
+  return { blob, filename: attachmentName(response.headers?.get('Content-Disposition') ?? null), bytes: total }
+}
+
+function abortError(): Error {
+  const error = new Error('The download was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
+async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel()
+  } catch {
+    // Already errored or closed: nothing more will be consumed either way.
+  }
+}
+
+async function cancelBody(body: ReadableStream<Uint8Array> | null | undefined): Promise<void> {
+  if (!body || typeof body.cancel !== 'function') return
+  try {
+    await body.cancel()
+  } catch {
+    // A locked or errored body cannot be read by this code afterwards either.
   }
 }
 

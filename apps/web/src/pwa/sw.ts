@@ -28,16 +28,18 @@ import { registerRoute, setCatchHandler } from 'workbox-routing'
 import { NetworkOnly, StaleWhileRevalidate } from 'workbox-strategies'
 
 import { SHELL_CACHE_NAME, isCacheableRequest, isSensitivePath } from './cache-policy'
+import { clearMarker, readMarker } from './push-marker'
+import { installPushHandlers } from './push-sw'
+import type { PushScope } from './push-sw'
 
 /**
  * sw.ts 是 tsconfig 里唯一的 Service Worker 文件。这里**不**引入 `lib: ["WebWorker"]`
  * （会与 DOM lib 冲突），改为就地声明所需的最小 self 形状。
  */
-interface ServiceWorkerScope {
+interface ServiceWorkerScope extends PushScope {
   readonly location: Location
   /** 由 vite-plugin-pwa 在构建期注入的预缓存清单占位符。 */
   readonly __WB_MANIFEST: Array<{ url: string; revision: string | null }>
-  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void
   skipWaiting(): Promise<void>
 }
 
@@ -78,9 +80,12 @@ setCatchHandler(async ({ request }) => {
 })
 
 // ── 5) registerType: 'prompt' 语义：只有页面显式要求时才跳过等待 ──────────
-self.addEventListener('message', (event) => {
+self.addEventListener('message', (event: MessageEvent) => {
   const data: unknown = event.data
   if (data && typeof data === 'object' && (data as { type?: unknown }).type === 'SKIP_WAITING') {
     void self.skipWaiting()
   }
 })
+
+// ── 6) P2-5c 推送：固定文案、点击时复核标记、能力应答（./push-sw.ts）──────────
+installPushHandlers(self, { readMarker, clearMarker })

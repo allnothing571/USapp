@@ -96,6 +96,13 @@ inline Deadline rawDeadline(const std::string &date, const std::string &time, co
 }
 
 struct TaskRow {
+    std::string scheduleType = "one_off";
+    std::string recurrenceId;
+    std::string periodDateSql = "NULL::date";
+    std::string startDateSql = "NULL::date";  // M5-C custom range start
+    std::string createdAtSql = "now()";
+    std::string completionMode = "single";
+    int targetCount = 1;
     std::string id = newUuid();
     int flowers = 5;
     int sunshine = 40;
@@ -132,11 +139,15 @@ inline std::string taskSql(const TaskRow &t,
                            const std::string &assigneeId) {
     return "INSERT INTO tasks (id, couple_id, creator_id, assignee_id, title, description, reward_flowers, "
            "reward_sunshine, timezone, deadline_local_date, deadline_local_time, deadline_at, "
-           "create_idempotency_key, create_fingerprint) SELECT " +
+           "create_idempotency_key, create_fingerprint, completion_mode, target_count, schedule_type, "
+           "recurrence_id, period_date, start_local_date, created_at) SELECT " +
            uuidLiteral(t.id) + ", " + uuidLiteral(coupleId) + ", " + uuidLiteral(creatorId) + ", " +
            uuidLiteral(assigneeId) + ", " + t.titleSql + ", " + t.descriptionSql + ", " +
            std::to_string(t.flowers) + ", " + std::to_string(t.sunshine) + ", " + t.timezoneSql +
-           ", d.ld, d.lt, d.at, '" + t.key + "', '" + t.fingerprint + "' FROM " + deadlineSource(t.deadline);
+           ", d.ld, d.lt, d.at, '" + t.key + "', '" + t.fingerprint + "', '" + t.completionMode + "', " +
+           std::to_string(t.targetCount) + ", '" + t.scheduleType + "', " +
+           (t.recurrenceId.empty() ? "NULL::uuid" : uuidLiteral(t.recurrenceId)) + ", " +
+           t.periodDateSql + ", " + t.startDateSql + ", " + t.createdAtSql + " FROM " + deadlineSource(t.deadline);
 }
 
 inline std::string taskOperationSql(const std::string &opId,

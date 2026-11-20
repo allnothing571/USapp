@@ -94,8 +94,16 @@ services:
       SCHEDULER_TICK_INTERVAL_MS: ${SCHEDULER_TICK_INTERVAL_MS:-15000}
       SCHEDULER_INSTANCE_ID: ${SCHEDULER_INSTANCE_ID:-}
       SCHEDULER_KEY_NAMESPACE: ${SCHEDULER_KEY_NAMESPACE:-usapp.scheduler}
+      REMINDERS_ENABLED: ${REMINDERS_ENABLED:-false}
+      MEMORY_PURGE_ENABLED: ${MEMORY_PURGE_ENABLED:-false}
       ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
       ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+      # P2-5c：真实推送默认全部关闭。调度还需要负责人写入 push_dispatch_control，启动不会写入。
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      PUSH_SUBSCRIBE_ENABLED: ${PUSH_SUBSCRIBE_ENABLED:-false}
+      PUSH_WORKER_URL: ${PUSH_WORKER_URL:-http://push-worker:8090}
+      PUSH_WORKER_TOKEN: ${PUSH_WORKER_TOKEN:-}
+      PUSH_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
     ports:
       # 管理监听器仅发布至宿主回环 127.0.0.1，供负责人本机直接排查
       - "127.0.0.1:8081:8081"
@@ -106,34 +114,26 @@ services:
       - usapp_net
 
   # ------------------------------------------------------------------
-  # push-worker —— Node.js 24 / TS 推送辅助进程（默认关闭、可选启用）
+  # push-worker —— Node.js 24 / TS 无状态传输进程（默认关闭、可选启用）
+  # 只在容器私有网络内监听、经令牌认证：不发布宿主端口，不持有数据库凭证，不依赖 postgres。
   # ------------------------------------------------------------------
   push-worker:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.push-worker
-    restart: unless-stopped
+    restart: on-failure
     profiles: ["push"]
     environment:
       APP_ENV: ${APP_ENV:-development}
       APP_VERSION: ${APP_VERSION:-0.1.0}
       PUSH_WORKER_ENABLED: ${PUSH_WORKER_ENABLED:-false}
+      PUSH_WORKER_PRIVATE_NETWORK: "true"
       PUSH_WORKER_HOST: 0.0.0.0
       PUSH_WORKER_PORT: 8090
-      PUSH_WORKER_POLL_INTERVAL_MS: ${PUSH_WORKER_POLL_INTERVAL_MS:-15000}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-usapp}
-      POSTGRES_USER: ${POSTGRES_PUSH_USER:-usapp_push}
-      POSTGRES_PASSWORD: ${POSTGRES_PUSH_PASSWORD:-}
+      PUSH_WORKER_TOKEN: ${PUSH_WORKER_TOKEN:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
-    ports:
-      - "127.0.0.1:8090:8090"
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - usapp_net
 

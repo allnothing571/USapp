@@ -1,0 +1,18 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject"],
+      "Resource": ["acs:oss:*:*:<LOG_BUCKET>/journals/<JOURNAL_ID>/batches/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ots:DescribeTable", "ots:GetRow", "ots:GetRange", "ots:PutRow", "ots:UpdateRow",
+        "ots:StartLocalTransaction", "ots:CommitTransaction", "ots:AbortTransaction"
+      ],
+      "Resource": ["acs:ots:<REGION>:<ACCOUNT_ID>:instance/<INSTANCE>/table/<TABLE>"]
+    }
+  ]
+}

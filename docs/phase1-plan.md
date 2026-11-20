@@ -1,14 +1,23 @@
 # USapp Phase 1 Plan: Couple Core Loop
 
-Status (updated 2026-10-10, Asia/Shanghai; M2 Git publication recorded in Section 9.20; M3-B owner-run checks in design Section 12.9):
+Status (updated 2026-10-25, Asia/Shanghai): M4 deployment and representative live evidence are in Section 10.8; the owner waived the remaining M4 live checks and started M5-A daily counting. M5-A is deployed on main with its remaining live checks waived: [phase1-m5-daily.md](phase1-m5-daily.md), Verification. M5-B weekly counting passed Codex-run automated and SQL compatibility checks; 0010 is applied/frozen on test/main, main API/web rollout completed, live weekly workflows remain unverified: [phase1-m5-weekly.md](phase1-m5-weekly.md), Verification results. Earlier milestone evidence remains historical.
 
 - **M1 (nickname): approved, implemented, and owner-run acceptance checks completed successfully on 2026-10-06.** Implementation status is in Section 7.8; the owner's verification evidence and its limits are in Section 7.9. The approval covered M1 only, including the additive `PATCH /api/v1/me` operation and OpenAPI `info.version` 0.2.0.
 - **M2 (wallet/ledger):** design in Section 9, with owner-approved directions D1, D2 (balance and per-entry bounds only), D18, D19, and D21 (2026-10-06). M2 is split:
   - **M2-A (database foundation): approved and implemented 2026-10-07; owner-run verification on `usapp_test` passed 2026-10-07 (Section 9.14).** The owner also applied frozen 0006 to the main database during M2-B rollout (Section 9.19). Claude Code itself built, tested, or executed none of it.
   - **M2-B (read endpoint, API startup privilege check, home display): owner-authorized for direct Codex implementation on 2026-10-07; implemented and passed owner-run verification (Section 9.19, updated 2026-10-09).** A separate formal M2 acceptance decision has not been recorded. The owner committed and pushed M2-A/M2-B on 2026-10-09 (Section 9.20, dated observation).
-- **M3 (one-off tasks with single completion and reward settlement): design in [docs/phase1-m3-design.md](phase1-m3-design.md) (revision 3). On 2026-10-09 the owner approved M3-A (task database foundation) and confirmed the product decisions listed in that document's Section 2.3 (D5, D5a, D5b, D5c, D6, D7, D8, D20, D22, D22a, D23, D24, D24a, D25, D26, D27, D28, D31, D34, D35). M3-A is implemented by Claude Code and passed the recorded owner-run verification on `usapp_test` on 2026-10-09 (0007 applied there with checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`; CTest, task SQL script and repaired wallet SQL script passed in the recorded modes; final fixture query passed; design Section 11.3, with limits). No separate formal M3-A acceptance decision is recorded. The owner committed and pushed M3-A as `6a9da4b` on 2026-10-09 (design Section 12.1; dated observation). M3-B (publication and read APIs, task list/publication UI, task startup enforcement, per-run isolated committed task fixtures) was approved by the owner on 2026-10-09, implemented by Claude Code, and on 2026-10-10 passed the recorded owner-run checks (CTest targets, web tests/type check/build, fresh main backup with a count-level restore check, main 0007 application, deployment with both startup policies `ok=true`, targeted live checks; design Section 12.9, with limits). 0007 is now applied to the main database and M3-B is deployed. No separate formal M3-B acceptance decision, commit or push is recorded; owner Git review/commit/push is next. M3-C implementation is not approved; D29, D30, D32, D33 and the remaining engineering details stay proposals.**
-- **M3-C and M4-M10: not approved.** Their proposed defaults in Section 4 are not approved either. M2-A schema/policy/tests, M2-B read/startup/frontend files, M3-A task schema/policy/tests and M3-B publication/read files exist; M3-C and M4-M10 remain proposals.
-- Claude Code has not built, tested, or verified anything in this document; all verification results are owner-run and recorded as such.
+- **M3 (one-off tasks with single completion and reward settlement): design in [docs/phase1-m3-design.md](phase1-m3-design.md) (revision 3). On 2026-10-09 the owner approved M3-A (task database foundation) and confirmed the product decisions listed in that document's Section 2.3 (D5, D5a, D5b, D5c, D6, D7, D8, D20, D22, D22a, D23, D24, D24a, D25, D26, D27, D28, D31, D34, D35). M3-A is implemented by Claude Code and passed the recorded owner-run verification on `usapp_test` on 2026-10-09 (0007 applied there with checksum `a9c680a03d6b426d5679672360900efdf19fb1da1cdc878779308ab470556161`; CTest, task SQL script and repaired wallet SQL script passed in the recorded modes; final fixture query passed; design Section 11.3, with limits). No separate formal M3-A acceptance decision is recorded. The owner committed and pushed M3-A as `6a9da4b` on 2026-10-09 (design Section 12.1; dated observation). M3-B (publication and read APIs, task list/publication UI, task startup enforcement, per-run isolated committed task fixtures) was approved by the owner on 2026-10-09, implemented by Claude Code, and on 2026-10-10 passed the recorded owner-run checks (CTest targets, web tests/type check/build, fresh main backup with a count-level restore check, main 0007 application, deployment with both startup policies `ok=true`, targeted live checks; design Section 12.9, with limits). 0007 is now applied to the main database and M3-B is deployed. On 2026-10-10 the owner accepted M3-B as a local-development milestone within the scope and limitations of those checks (not production readiness) and reported the M3-B commit `380696b` pushed to `origin/main` (design Section 12.10; dated observation). M3-C implementation and owner-run evidence are recorded below and in its design Sections 16-18; D29 remains unauthorized and D33 deferred.**
+- **M3-C:** M3-C1/M3-C2 were approved and implemented on 2026-10-14; the owner ran the recorded backend/web automated checks, deployed them and reported representative live checks successful. Evidence and limits live once in [phase1-m3c-design.md](phase1-m3c-design.md) Section 18. No separate formal acceptance decision or later Git publication is recorded.
+- **M4 (counting tasks): implemented and deployed; owner-run automated, SQL compatibility and representative live results are recorded in Section 10.8.** Remaining live checks were waived, not passed.
+- **M5-A (daily counting): owner-authorized direct Codex implementation on 2026-10-16; implemented and passed recorded owner-run backend/web automated checks.** Test 0009 is applied/frozen; repeat-InitRoles/privilege/SQL compatibility checks passed on usapp_test on 2026-10-21; main 0009 was applied and the runtime/web deployed on 2026-10-22; remaining live checks were waived, not passed. See [phase1-m5-daily.md](phase1-m5-daily.md), Verification.
+- **M5-C (custom date-range counting, D5 inclusive Beijing dates): owner-authorized 2026-10-25; implemented by Claude Code; 0011 + repair 0012 applied on usapp_test and main; automated checks passed; main API/web rollout completed 2026-10-25; live workflows unverified.** See [phase1-m5-custom.md](phase1-m5-custom.md).
+- **M6 (task edit/cancel, D3 resolved by the owner's approved rules 2026-10-25): implemented by Claude Code; 0013 applied on usapp_test and main; automated checks passed; main API/web rollout completed 2026-10-25; live workflows unverified.** See [phase1-m6-design.md](phase1-m6-design.md).
+- **M7 (reward-shop products, D13/D14; price 1-999 flowers): implemented/test-verified by Claude Code; 0014 frozen on test/main; joint M7/M8 main API/web rollout completed by Codex on owner authorization 2026-10-26.** See [phase1-m8-redemption.md](phase1-m8-redemption.md), Section 7, for release evidence and live-check limits.
+- **M8 (direct redemption): implemented/test-verified by Claude Code; 0015 frozen on test/main; main API/web deployed by Codex 2026-10-26. Live product/redeem/fulfill and browser/PWA acceptance unverified.** See [phase1-m8-redemption.md](phase1-m8-redemption.md), Section 7.
+- **M9 (request redemption and mutual cancellation/refund): owner-assigned direct Codex implementation 2026-10-26; implemented and automated-test verified on usapp_test; 0016 applied/frozen on test and main; main API/web rollout 2026-10-26 (Section 5 of the M9 document); live/browser acceptance unverified. M10 not started.** See [phase1-m9-redemption.md](phase1-m9-redemption.md) for evidence and release limits.
+- **M10 (home and navigation, D15/D16/C1/C2): owner-authorized 2026-10-26; implemented by Claude Code in the web app only; web unit tests and typecheck passed; frontend web published 2026-10-26 (Section 8 of the M10 document); browser/device acceptance pending; Phase 1 not formally accepted.** See [phase1-m10-home.md](phase1-m10-home.md).
+- **M5-B (weekly counting, D4 Monday-to-Monday weeks in Asia/Shanghai): implemented; Codex-run automated/SQL checks passed and main API/web rollout completed 2026-10-25. Frozen 0010 is applied on test/main; live weekly workflows remain unverified.** See [phase1-m5-weekly.md](phase1-m5-weekly.md), Verification results and Main rollout. Custom periods and M6-M10 remain outside this approval.
+- Claude Code has not built, tested, or verified anything in this document; verification results are attributed to the owner or Codex as recorded for each milestone.
 
 Prerequisite: Phase 0 was accepted by the owner on 2026-10-06 as a local development baseline, within the scope and limitations in [docs/phase0-acceptance.md](phase0-acceptance.md). That acceptance is not production-readiness approval.
 
@@ -139,7 +148,7 @@ Each milestone is small enough to review on its own, leaves the app usable, and 
 | M1 | Nickname | Set and see own nickname; partner sees it | `PATCH /api/v1/me` | None | C7, D17 |
 | M2 | Wallet ledger foundation (design: Section 9) | Home shows own flower and sunshine balances (initially 0) | `GET /api/v1/wallet` | Migration `0006_wallet_ledger`, grant changes | D1, D2, D18, D19, D21 |
 | M3 | One-off single tasks | Publish to partner, complete, earn rewards, view both lists | Task create/list/complete | `tasks`, `task_periods`, progress events | M2, D5-D10, D20 |
-| M4 | Counting completion | "+1" progress with 0/N display; reward on reaching N | Progress endpoint | Uses M3 tables | M3 |
+| M4 | Counting completion | "+1" progress with 0/N display; reward on reaching N | Progress endpoint, contract 0.6.0 | 0008: mode/target and append-only progress | M3 |
 | M5 | Recurring periods | Daily, weekly, custom-range tasks; silent expiry | Schedule fields | Period columns | M4, D4 |
 | M6 | Task edit and cancel | Key edits after publication of the current period need recipient confirmation (workflow per D3); cancel | Update/cancel endpoints | `version` checks | M5, D3 |
 | M7 | Reward shop | Create, edit, archive products for the partner | Product endpoints | `reward_products` | M2, D13, D14 |
@@ -947,3 +956,202 @@ Remaining limits:
   decision has been recorded.
 - This supersedes the "Git review/commit/push pending" statements in Sections 9.19
   and the status header, which describe the state before 2026-10-09.
+
+## 10. M4 Counting Tasks: Implementation (2026-10-14; later evidence in Section 10.8)
+
+### 10.1 Authorization and scope
+
+The owner requested the next feature immediately after reporting the M3-C live
+checks successful, then explicitly assigned this implementation to Codex. M4
+covers one-off counting tasks, the additive schema/grants needed for them, service,
+contract, frontend and focused regression tests. This assignment does not invent
+a separate M3-C acceptance, final database check or Git publication. M5-M10,
+task editing, undo, recurring periods, database reset, dependency/deployment
+changes and a timeout increase remain outside scope. D33 stays deferred.
+
+The publisher selects single completion or counting, with a positive target N
+(PostgreSQL integer storage range 1-2147483647; no additional product cap).
+The recipient sees 0/N and presses +1. Below N, only progress is recorded.
+At N, the full reward is credited once. Extra new requests return an ignored
+success without a new event, audit or reward. Deadline rules are unchanged.
+
+### 10.2 Schema, locking and settlement
+
+- `0008_task_counting.sql` adds immutable mode/target columns; existing tasks
+  default to single/1. It creates append-only `task_progress_events` with unique
+  `(task_id, progress_count)` and `(user_id, idempotency_key)` constraints.
+- Before-insert guards require the same couple, assignee, target and next
+  contiguous count, with a valid decision timestamp. Final events link to the
+  correct task-sourced wallet operation. Completion insertion requires that
+  final event; deferred checks require the matching completion in the same
+  transaction. Existing wallet/settlement constraints remain intact.
+- Membership share lock -> reserved per-task advisory transaction lock
+  `(33004, hashtext(canonical task UUID))` -> key classification -> current count.
+  Hash collisions only serialize unrelated tasks; scheduler bigint keys are separate.
+- Non-final actions insert an event and `task.progressed` audit, then commit.
+  Final actions claim the operation, lock positive assets in flower/sunshine order,
+  read balances and check caps, then insert the final event at one clock decision,
+  insert completion using that timestamp, entries, `task.completed` and
+  `task.progressed` audits. Confirmed commit alone reports new progress/settlement.
+- New advisory serialization refines D30 for count tasks; single tasks retain
+  their existing operation-claim serialization. No task-row UPDATE grant is added.
+- Progress keys belong to the actor/action domain, independently of publication
+  and single completion. Final wallet operations use NULL wallet key/fingerprint;
+  their business-source uniqueness and the progress event protect settlement.
+  Same-task event replay is immutable even after later progress or expiry;
+  an existing key for another counting task returns 409. Concurrent conflicts
+  use `ON CONFLICT` followed by reads, without SQLSTATE classification.
+  Ignored excess requests do not reserve their unused keys.
+- Progress SELECT/INSERT grants are narrowed in migration and init-roles section 9.
+  The startup policy now checks all three task tables; new runtime needs 0008.
+
+### 10.3 Contract and frontend
+
+OpenAPI 0.6.0 adds mode/target to publication and
+`POST /api/v1/tasks/{taskId}/progress` behind AuthFilter, with an empty body and
+Idempotency-Key. Responses contain task/event identifiers, this event's count/target,
+recorded time, completed/ignored flags and nullable settlement facts, never balances.
+Wrong-mode use returns 409 `TASK_COMPLETION_MODE_INVALID`.
+Legacy single-task publication fingerprints and JSON response shapes are retained;
+only counting task responses include the new mode/target/progress fields.
+
+The form adds completion mode and target; assignees get +1 on count tasks and
+complete on single tasks. Lists, history and detail show progress. An action is
+registered before sending, so duplicate clicks share one pending action. Lost,
+unreadable or unusable responses preserve its key for explicit retry only;
+logout/account switches discard late responses. No offline queue or auto-retry.
+Confirmed responses trigger fresh list reads (and an open detail refresh), never
+assign an old replay count into current state. Only settled responses reload the
+wallet; response amounts remain feedback, not balances. Ignored excess never
+appears as another reward. Existing view-generation guards remain in use.
+
+### 10.4 Files and focused tests
+
+- Database: new 0008; init-roles section 9; task/wallet SQL scripts' maintenance
+  TRUNCATE preparations include the new referencing table so FK failures do not
+  mask the original append-only guards. Expected errors and ROLLBACK are preserved.
+- Backend: `TaskService.*`, `TaskCompletionService.*`, `TaskController.cc`,
+  `Errors.*`, `TaskPrivilegePolicy.*`; existing service/ledger unit helpers,
+  `UnitTest.cc`, `DbGatedTest.cc`, `StaticCheckTest.cc` and new `TaskProgressDbTests.h`.
+- Web: task API/types/rules/errors, tasks store/view; existing client/view specs
+  and new `tasks-progress.spec.ts`. No wallet/session-store change.
+- New real-service tests reuse existing helpers: non-final no settlement,
+  immutable replay, final shared transaction, ignored excess, key domains,
+  same/different-key concurrency, final D32 fault rollback with observed teardown
+  and same-key retry, authorization/expiry, SQL gap and premature/missing settlement
+  guards. Only isolated committed fixtures on literal `usapp_test`; no reset/purge.
+- Parameterized unit checks cover N bounds, fingerprint/shape compatibility and
+  new outcomes. Frontend cases cover +1 routing, final/non-final wallet refresh,
+  duplicate clicks, unknown retry, old snapshot replay, logout/switch and offline.
+  Existing M3 regressions remain. No new test framework, dependency or timeout.
+
+### 10.5 Verification status and owner sequence
+
+Codex changed source and performed read-only static review/hygiene/hash checks.
+At delivery, Codex ran no compiler, test, package, Git, container or database
+command; no SQL was executed, no fixtures created and no web dist built by Codex.
+Subsequent owner-run results are recorded in Sections 10.6-10.7. Migration 0000-0007,
+Db.h/Db.cc, wallet implementation, dependencies and deployment are untouched.
+Frozen 0006/0007 hashes match the recorded values. M4 is not accepted or deployed.
+
+1. On `usapp_test`, owner DryRun: 0000-0007 checksums match, only 0008 pending.
+2. Apply 0008 with InitRoles to test DB; repeat InitRoles and inspect narrowed
+   task/progress and wallet privileges. Rebuild test image and run full CTest;
+   db_gated must pass, not skip, inside its existing 30 s budget. Rerun both
+   task/wallet SQL scripts in application and maintenance modes after copying
+   their current source into the container. Web unit suite and typecheck, no build.
+3. Only after checks: fresh main backup and scratch restore verification,
+   preserve current API image and served dist, main DryRun/application and grants,
+   then deploy backend and confirm both startup policies before building web dist.
+4. Representative live acceptance: N=2 below/final steps, rewards once, publisher
+   no control, same-key replay and ignored excess, deadline/security/offline checks.
+   Record actual outcomes here once; Git publication remains owner-controlled.
+
+The owner-run passes in Sections 10.6-10.7 verify compilation, type checking,
+the implemented database cases and their measured timing. They do not verify
+every possible cross-task key-conflict interleaving. Existing-account final fault
+rollback ran in db_gated;
+count-specific expiry while waiting across a deadline is not separately covered
+(M3-C shared lock/deadline tests remain). No real-service near-cap test or forced
+lost-COMMIT test. Committed fixture growth is permanent; one row per accepted +1.
+Old runtimes cannot serve counting and their completion path cannot bypass its
+target: runtime rollback preserves settlements and supports legacy single tasks,
+but interrupts count/retry functionality. Do not attempt schema/data rollback
+by deleting immutable rows or editing an applied migration.
+
+### 10.6 Owner-run backend verification and narrow repair (2026-10-14)
+
+- Owner DryRun on `usapp_test`: 0000-0007 checksums matched; only 0008 pending.
+  Owner applied 0008 with InitRoles, exit 0, SHA-256
+  `36fe053917c86bcd7ed1931b085f59effd778205d93a1ac871e53b3336413065`.
+  0008 is now applied to the test database and must not be edited. No main
+  application is reported. Repeated InitRoles output was not supplied separately.
+- Test image built successfully in 33.5 s. Full CTest: unit failed (0.02 s,
+  895 assertions, one failure); db_gated passed (7.85 s, not skipped);
+  static_check passed (0.00 s); total 7.88 s, exit 8.
+- Unit failure: the missing-column fixture removed `task_id` checks from both
+  task_completions and the new task_progress_events, producing six missing
+  keys while the assertion expected three. Codex repaired UnitTest.cc only:
+  remove checks for one named table at a time, test both tables, and require
+  exactly the three subject-specific missing keys. Production policy, service,
+  migrations and grants are unchanged. No assertion or permission guard weakened.
+- Codex ran no build/test/Git/container/database command. The repaired unit target
+  needed an owner rebuild and targeted rerun when this entry was written (completed
+  in Section 10.7). Earlier database/static passes are separate evidence, not a
+  later full-suite pass. SQL-script role compatibility reruns remain pending.
+  M4 is not accepted or deployed.
+
+### 10.7 Owner-run targeted unit rerun and frontend checks (2026-10-14)
+
+- Rebuilt test image successfully in 39.2 s. Targeted CTest `unit` passed in
+  0.02 s (total 0.02 s), exit 0. All three backend targets have now passed across
+  the recorded runs; no full CTest rerun after the test-only repair is claimed.
+- Web full unit suite: 13 files, 120 tests passed, 7.04 s, exit 0. Typecheck
+  (vue-tsc and tsc) passed, exit 0. Codex ran neither command.
+- Pending: role-mode SQL-script compatibility reruns, separately reported repeated
+  InitRoles evidence, main 0008 rollout, M4 runtime/web build, live counting checks
+  and an acceptance decision. No Git commit/push or M4 web build is reported.
+- 0008 remains frozen on usapp_test with the checksum in Section 10.6; no main
+  application is inferred. These automated checks do not constitute deployment
+  or exhaustive security verification. D33 and forced lost-COMMIT tests remain gaps.
+
+### 10.8 Owner-run M4 deployment and scope close (2026-10-16)
+
+This supersedes the pending statements above; they describe the state when written.
+All results below were supplied by the owner, not executed by Codex.
+
+- Repeated InitRoles on usapp_test skipped all nine applied migrations with
+  matching checksums and exited 0. The current task and wallet SQL scripts passed
+  as both usapp_api and postgres: respectively 27 and 28 groups in each mode,
+  with SET CONSTRAINTS, ROLLBACK and exit 0. No permanent script fixtures claimed.
+- Fresh main backup: backups/usapp_before_m4_20261016_170559.dump, 218770 bytes.
+  Single-transaction restore into usapp_m4_restore_20261016_170559 succeeded.
+  Basic counts matched: accounts=3, audits=19, completions=2, entries=3, members=2,
+  migrations=8, operations=2, spaces=1, tasks=6, users=2. This is a count-level
+  restore check, not a row-by-row comparison.
+- Main DryRun exited 0: only 0008 was pending, checksum
+  36fe053917c86bcd7ed1931b085f59effd778205d93a1ac871e53b3336413065.
+  The main apply/repeated-InitRoles command outputs were not supplied; do not
+  invent their exit codes. Subsequent main permissions and the healthy M4 runtime
+  establish that the new schema is operational. The migration is frozen.
+- Main permission evidence covered tasks, completions, progress and the three
+  wallet tables. API SELECT/INSERT were true; forbidden table, push and PUBLIC
+  privileges false. Only wallet_accounts.lock_token had UPDATE. API/push roles
+  were nonsuperusers with zero memberships.
+- Saved API image sha256:5c1bef4e72350f2d287013665b1033ca76bd8fd060a3bf6cd579ea509c90d5d9
+  as usapp-api:before-m4-20261016_170559. Served web backup:
+  backups/before-m4-20261016_170559/web-dist, 19 files including index.html/sw.js.
+  The owner saved rollback-info.json. Runtime rollback was not exercised.
+- API build 13.8 s, exit 0; updated container healthy in 6.6 s, exit 0. Startup
+  wallet policy had 187 checks, task policy 217; both ok=true, zero mismatches,
+  missing and unexpected checks. Web build exited 0; SW precache 18 entries,
+  169.39 KiB. Automated results remain Section 10.7: targets passed across runs,
+  not a single post-repair full backend rerun.
+- Owner reported success for the representative N=2 task (flower 1, sunshine 3):
+  publisher had no +1 control; first recipient +1 showed 1/2 with unchanged
+  balances after refresh; second showed history 2/2 and credited 1/3 once;
+  another refresh did not award again. Exact before/after balances were not pasted.
+- The owner explicitly waived the remaining M4 live tests and asked to start
+  the next feature. They were not executed or passed. No final main-data query,
+  exhaustive security claim or later Git publication is recorded. M5-A daily
+  counting is now assigned: details in phase1-m5-daily.md.

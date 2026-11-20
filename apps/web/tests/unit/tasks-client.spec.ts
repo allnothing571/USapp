@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { OfflineMutationBlockedError, setCsrfToken } from '@/api/client'
-import { createTask, getTask, listTasks, newIdempotencyKey } from '@/api/tasks'
+import { completeTask, createTask, getTask, listTasks, newIdempotencyKey, progressTask } from '@/api/tasks'
 
 const TASK = {
   id: '0f8fad5b-d9cb-469f-a165-70867728950e',
@@ -38,6 +38,18 @@ function ok(body: unknown, status = 200) {
 }
 
 describe('task API uses the shared client', () => {
+  it('daily progress sends the displayed date, and dated details remain GET requests', async () => {
+    setCsrfToken('daily-csrf')
+    fetchMock.mockResolvedValue(ok({}))
+    await progressTask(TASK.id, 'daily-key-0000000001', '2026-10-16')
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.body).toBe(JSON.stringify({ period_date: '2026-10-16' }))
+    expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('daily-csrf')
+    await getTask(TASK.id, '2026-10-15')
+    expect(fetchMock.mock.calls[1][0]).toBe(`/api/v1/tasks/${TASK.id}?period_date=2026-10-15`)
+    expect(fetchMock.mock.calls[1][1].method).toBe('GET')
+  })
+
   it('publish sends POST with JSON body, Idempotency-Key, CSRF token and same-origin cookies', async () => {
     setCsrfToken('csrf-1')
     fetchMock.mockResolvedValue(ok({ task: TASK }, 201))
@@ -106,11 +118,41 @@ describe('task API uses the shared client', () => {
       .rejects.toMatchObject({ status: 409, code: 'IDEMPOTENCY_KEY_REUSED' })
   })
 
+  it('completion sends POST to the completion path with Idempotency-Key, CSRF, cookies and no body', async () => {
+    setCsrfToken('csrf-2')
+    const settlement = { operation_id: '1f8fad5b-d9cb-469f-a165-70867728950e', flower: 1, sunshine: 0 }
+    fetchMock.mockResolvedValue(ok({ task: { ...TASK, status: 'completed' }, settlement }))
+    const response = await completeTask(TASK.id, 'key-0000000000000009')
+    expect(response.settlement).toEqual(settlement)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(`/api/v1/tasks/${TASK.id}/completion`)
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('same-origin')
+    expect(init.body).toBeUndefined()
+    const headers = init.headers as Record<string, string>
+    expect(headers['Idempotency-Key']).toBe('key-0000000000000009')
+    expect(headers['X-CSRF-Token']).toBe('csrf-2')
+    expect(headers).not.toHaveProperty('Content-Type')
+  })
+
   it('generates distinct UUID-shaped keys accepted by the server rule', () => {
     const a = newIdempotencyKey()
     const b = newIdempotencyKey()
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     expect(a).toMatch(/^[A-Za-z0-9_-]{16,128}$/)
     expect(a).not.toBe(b)
+  })
+
+  it('progress uses the shared guarded POST client with an empty body', async () => {
+    setCsrfToken('csrf-progress')
+    fetchMock.mockResolvedValue(ok({ task_id: TASK.id, progress_count: 1, target_count: 2,
+      event_id: 'event', recorded_at: '2026-10-14T00:00:00.000000Z', completed: false, ignored: false, settlement: null }))
+    await progressTask(TASK.id, 'key-progress-0001')
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(`/api/v1/tasks/${TASK.id}/progress`)
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+    expect(init.credentials).toBe('same-origin')
+    expect(init.headers).toMatchObject({ 'Idempotency-Key': 'key-progress-0001', 'X-CSRF-Token': 'csrf-progress' })
   })
 })

@@ -1,0 +1,12 @@
+{
+  "bucket": "usapp-j4c-log-e3784866",
+  "budget_cny": 5,
+  "declared_owner_uid": "1567452047414069",
+  "instance": "uj4ce3784866",
+  "journal_id": "0afe377a-3e06-4134-997f-4f1a437b8492",
+  "mode": "offline_only",
+  "region": "cn-shanghai",
+  "run_id": "e3784866",
+  "table": "journal",
+  "version": 1
+}

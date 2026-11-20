@@ -20,6 +20,7 @@ import { useAdminSessionStore } from '@/stores/admin-session';
  */
 
 const routes: RouteRecordRaw[] = [
+  { path: '/avatar', name: 'avatar-catalog', component: () => import('@/views/AvatarCatalogView.vue'), meta: { requiresAuth: true, title: '阳光商店' } },
   {
     path: '/login',
     name: 'login',
@@ -39,10 +40,71 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: '用户' },
   },
   {
+    path: '/users/:userId/wallet',
+    name: 'user-wallet',
+    component: () => import('@/views/UserWalletView.vue'),
+    meta: { requiresAuth: true, title: '用户钱包' },
+  },
+  {
     path: '/couples',
     name: 'couples',
     component: () => import('@/views/CouplesView.vue'),
     meta: { requiresAuth: true, title: '情侣空间' },
+  },
+  {
+    // One record for the list and the optional detail, so opening a task keeps the list (and its page) mounted.
+    path: '/couples/:coupleId/tasks/:taskId?',
+    name: 'couple-tasks',
+    component: () => import('@/views/CoupleTasksView.vue'),
+    meta: { requiresAuth: true, title: '空间任务' },
+  },
+  {
+    path: '/couples/:coupleId/redemptions/:redemptionId?',
+    name: 'couple-redemptions',
+    component: () => import('@/views/CoupleRedemptionsView.vue'),
+    meta: { requiresAuth: true, title: '空间兑换记录' },
+  },
+  {
+    path: '/users/:userId/sessions',
+    name: 'user-sessions',
+    component: () => import('@/views/UserSessionsView.vue'),
+    meta: { requiresAuth: true, title: '用户会话' },
+  },
+  {
+    path: '/users/:userId/notifications',
+    name: 'user-notifications',
+    component: () => import('@/views/UserNotificationsView.vue'),
+    meta: { requiresAuth: true, title: '用户通知' },
+  },
+  {
+    path: '/couples/:coupleId/shared-plans/:planId?',
+    name: 'couple-shared-plans',
+    component: () => import('@/views/CoupleSharedPlansView.vue'),
+    meta: { requiresAuth: true, title: '空间共享计划' },
+  },
+  {
+    path: '/couples/:coupleId/albums/:albumId?',
+    name: 'couple-albums',
+    component: () => import('@/views/CoupleAlbumsView.vue'),
+    meta: { requiresAuth: true, title: '空间相册' },
+  },
+  {
+    path: '/couples/:coupleId/memories/:memoryId?',
+    name: 'couple-memories',
+    component: () => import('@/views/CoupleMemoriesView.vue'),
+    meta: { requiresAuth: true, title: '空间回忆' },
+  },
+  {
+    path: '/couples/:coupleId/anniversaries/:anniversaryId?',
+    name: 'couple-anniversaries',
+    component: () => import('@/views/CoupleAnniversariesView.vue'),
+    meta: { requiresAuth: true, title: '空间纪念日' },
+  },
+  {
+    path: '/couples/:coupleId/products/:productId?',
+    name: 'couple-products',
+    component: () => import('@/views/CoupleProductsView.vue'),
+    meta: { requiresAuth: true, title: '空间奖励商品' },
   },
   {
     path: '/audit',

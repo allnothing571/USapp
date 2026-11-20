@@ -4,6 +4,8 @@
  * 边界：这里只存"当前登录用户所属空间"的数据，全部是**内存态**。
  * 不落 localStorage / sessionStorage / IndexedDB —— 情侣业务数据不允许持久化到客户端。
  * `reset()` 由 session store 在注销 / 切换账号时调用。
+ * 每次 reset() 递增代数；reset 之前发出的请求落地时（成功或失败）不再写入任何状态，
+ * 改为抛出 StaleSessionError，旧空间与旧邀请不能回填到已清空或新账号的状态里。
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -11,6 +13,7 @@ import { computed, ref } from 'vue'
 import * as spaceApi from '@/api/space'
 import { ApiError } from '@/api/client'
 import type { CreatedInvite, Invite, Space, SpaceMember } from '@/api/types'
+import { StaleSessionError } from './stale'
 
 export const useSpaceStore = defineStore('space', () => {
   const space = ref<Space | null>(null)
@@ -44,8 +47,11 @@ export const useSpaceStore = defineStore('space', () => {
     members.value = next?.members ? [...next.members] : []
   }
 
+  let generation = 0
+
   /** 注销 / 切换账号时清空全部业务态。 */
   function reset(): void {
+    generation += 1
     space.value = null
     members.value = []
     invites.value = []
@@ -55,15 +61,19 @@ export const useSpaceStore = defineStore('space', () => {
   }
 
   async function run<T>(task: () => Promise<T>): Promise<T> {
+    const started = generation
     loading.value = true
     errorCode.value = null
     try {
-      return await task()
+      const result = await task()
+      if (started !== generation) throw new StaleSessionError()
+      return result
     } catch (error) {
+      if (started !== generation) throw error instanceof StaleSessionError ? error : new StaleSessionError()
       errorCode.value = error instanceof ApiError ? error.code : 'NETWORK_ERROR'
       throw error
     } finally {
-      loading.value = false
+      if (started === generation) loading.value = false
     }
   }
 

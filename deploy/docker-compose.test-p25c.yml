@@ -1,0 +1,105 @@
+# =====================================================================
+# deploy/docker-compose.test-p25c.yml
+#
+# P2-5c verification: a STANDALONE disposable stack, never merged with docker-compose.yml or the LAN
+# override, sharing nothing with the existing stack:
+#   - its own PostgreSQL 17 process, with data on tmpfs;
+#   - one project-scoped internal network: no outbound route, no published ports, no host networking;
+#   - no named volumes and no Docker socket; the only bind mount is the roles script, read-only;
+#   - throwaway credentials, worker token and test-only VAPID pair generated per run by
+#     Claude outputs/p25c-isolated-verify.ps1 and passed through the process environment only.
+# worker-stub: the real worker server and transport, with resolver, address policy and CA injected to
+# reach an in-process fake provider. worker-prod: the production image and entry with its default
+# policy; extra_hosts answers the allowlisted names from /etc/hosts with non-public addresses, so
+# no lookup leaves the container and its refusal is observed at the real boundary.
+# Neither worker has database credentials.
+# Run it only through that script: it gives a unique project name and disables automatic .env loading.
+# =====================================================================
+services:
+  postgres:
+    image: postgres:17
+    pull_policy: never
+    restart: "no"
+    environment:
+      POSTGRES_DB: usapp_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ISO_SUPERUSER_PASSWORD:?generated per run}
+      POSTGRES_API_USER: usapp_api
+      POSTGRES_API_PASSWORD: ${ISO_API_PASSWORD:?generated per run}
+      POSTGRES_PUSH_USER: usapp_push
+      POSTGRES_PUSH_PASSWORD: ${ISO_PUSH_PASSWORD:?generated per run}
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=1g
+    volumes:
+      - type: bind
+        source: ./docker-entrypoint-initdb.d
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d usapp_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test-runner:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      target: tester
+    image: usapp-isolated-test-runner:${ISO_RUNNER_TAG:-p25c}
+    pull_policy: never
+    restart: "no"
+    profiles: ["test"]
+    environment:
+      USAPP_ROOT: /workspace
+      USAPP_TEST_DSN: "postgresql://usapp_api:${ISO_API_PASSWORD:?generated per run}@postgres:5432/usapp_test"
+      USAPP_TEST_MAINT_CONNINFO: "host=postgres port=5432 dbname=usapp_test user=postgres password=${ISO_SUPERUSER_PASSWORD:?generated per run}"
+      USAPP_TEST_EXPECT_PRE0024: "1"
+      USAPP_TEST_WORKER_TOKEN: ${ISO_WORKER_TOKEN:?generated per run}
+    networks:
+      - isolated
+
+  worker-stub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.push-worker
+      target: tester
+    image: usapp-isolated-worker-stub:p25c
+    pull_policy: never
+    restart: "no"
+    environment:
+      PUSH_WORKER_TOKEN: ${ISO_WORKER_TOKEN:?generated per run}
+      VAPID_PUBLIC_KEY: ${ISO_VAPID_PUBLIC:?generated per run}
+      VAPID_PRIVATE_KEY: ${ISO_VAPID_PRIVATE:?generated per run}
+    networks:
+      - isolated
+
+  worker-prod:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.push-worker
+      target: runtime
+    image: usapp-isolated-worker-prod:p25c
+    pull_policy: never
+    restart: "no"
+    environment:
+      PUSH_WORKER_ENABLED: "true"
+      PUSH_WORKER_PRIVATE_NETWORK: "true"
+      PUSH_WORKER_HOST: 0.0.0.0
+      PUSH_WORKER_PORT: 8090
+      PUSH_WORKER_TOKEN: ${ISO_WORKER_TOKEN:?generated per run}
+      VAPID_PUBLIC_KEY: ${ISO_VAPID_PUBLIC:?generated per run}
+      VAPID_PRIVATE_KEY: ${ISO_VAPID_PRIVATE:?generated per run}
+      VAPID_SUBJECT: mailto:test-only@example.com
+    extra_hosts:
+      - "fcm.googleapis.com:127.0.0.1"
+      - "updates.push.services.mozilla.com:10.255.255.1"
+      - "web.push.apple.com:169.254.169.254"
+    networks:
+      - isolated
+
+networks:
+  isolated:
+    internal: true

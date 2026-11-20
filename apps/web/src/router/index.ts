@@ -17,6 +17,7 @@ import { useSessionStore } from '@/stores/session'
 
 /** 已认证但尚无空间时，仍允许访问的路由名。 */
 const ALLOWED_WITHOUT_SPACE: ReadonlySet<string> = new Set([
+  'notifications',
   'space-create',
   'space-join',
   'invite',
@@ -24,6 +25,7 @@ const ALLOWED_WITHOUT_SPACE: ReadonlySet<string> = new Set([
 ])
 
 const routes: RouteRecordRaw[] = [
+  { path: '/notifications', name: 'notifications', component: () => import('@/views/NotificationsView.vue') },
   {
     path: '/',
     name: 'root',
@@ -58,10 +60,108 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/HomeView.vue'),
   },
   {
+    path: '/achievements', name: 'achievements', component: () => import('@/views/AchievementsView.vue'),
+  },
+  {
+    path: '/avatar', name: 'avatar-shop', component: () => import('@/views/AvatarView.vue'), props: { tab: 'shop' },
+  },
+  {
+    path: '/avatar/wardrobe', name: 'avatar-wardrobe', component: () => import('@/views/AvatarView.vue'), props: { tab: 'wardrobe' },
+  },
+  {
     // 阶段 1 M3-B：一次性任务的发布与列表（需要已认证且已加入空间，走下方全局守卫）。
     path: '/tasks',
     name: 'tasks',
     component: () => import('@/views/TasksView.vue'),
+  },
+  {
+    // 阶段 1 M7：奖励商店（上架、修改、下架；不含兑换）。
+    path: '/rewards',
+    name: 'rewards',
+    component: () => import('@/views/RewardsView.vue'),
+  },
+  {
+    // 阶段 2 P2-1：“我们”——双人留言板（之后承载纪念日、回忆等）。
+    path: '/us',
+    name: 'us',
+    component: () => import('@/views/UsView.vue'),
+  },
+  {
+    path: '/us/messages/:id',
+    name: 'message-detail',
+    component: () => import('@/views/MessageDetailView.vue'),
+    props: true,
+  },
+  {
+    // 阶段 2 P2-2：纪念日与倒数日详情（修改、修改申请与首页置顶）。
+    path: '/us/anniversaries/:id',
+    name: 'anniversary-detail',
+    component: () => import('@/views/AnniversaryDetailView.vue'),
+    props: true,
+  },
+  {
+    // 阶段 3 P3-1c：照片回忆（时间线、新建、详情与修改申请）。
+    path: '/us/memories',
+    name: 'memories',
+    component: () => import('@/views/MemoriesView.vue'),
+  },
+  {
+    path: '/us/memories/new',
+    name: 'memory-new',
+    component: () => import('@/views/MemoryNewView.vue'),
+  },
+  {
+    path: '/us/memories/:id',
+    name: 'memory-detail',
+    component: () => import('@/views/MemoryDetailView.vue'),
+    props: true,
+  },
+  {
+    // 阶段 3 P3-2c：共享相册（列表、新建、详情、加入照片、封面与改名申请）。
+    path: '/us/albums',
+    name: 'albums',
+    component: () => import('@/views/AlbumsView.vue'),
+  },
+  {
+    path: '/us/albums/:id',
+    name: 'album-detail',
+    component: () => import('@/views/AlbumDetailView.vue'),
+    props: true,
+  },
+  {
+    // D6：上传者本人可恢复的已删除照片。
+    path: '/us/memory-deletions',
+    name: 'memory-deletions',
+    component: () => import('@/views/MemoryRecoveryView.vue'),
+    props: { kind: 'recovery' },
+  },
+  {
+    path: '/us/retained-photos',
+    name: 'retained-photos',
+    component: () => import('@/views/MemoryRecoveryView.vue'),
+    props: { kind: 'retained' },
+  },
+  {
+    path: '/us/photo-deletions',
+    name: 'media-deletions',
+    component: () => import('@/views/MediaDeletionsView.vue'),
+  },
+  {
+    path: '/us/plans',
+    name: 'shared-plans',
+    component: () => import('@/views/SharedPlansView.vue'),
+  },
+  {
+    path: '/us/plans/:id',
+    name: 'shared-plan-detail',
+    component: () => import('@/views/SharedPlanDetailView.vue'),
+    props: true,
+  },
+  {
+    // 阶段 1 M10：账号、昵称、空间、邀请与注销（原首页内容）。
+    path: '/me',
+    name: 'me',
+    component: () => import('@/views/MeView.vue'),
   },
   {
     path: '/:pathMatch(.*)*',

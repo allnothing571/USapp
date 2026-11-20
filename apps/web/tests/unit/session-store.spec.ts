@@ -249,7 +249,8 @@ describe('logout', () => {
 
     const session = useSessionStore()
     await session.bootstrap()
-    await expect(session.logout()).resolves.toBeUndefined()
+    // Never rejects; true = this logout cleared the session it started from (M10 repair).
+    await expect(session.logout()).resolves.toBe(true)
 
     expect(session.status).toBe('anonymous')
     expect(session.user).toBeNull()

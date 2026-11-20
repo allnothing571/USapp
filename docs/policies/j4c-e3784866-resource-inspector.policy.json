@@ -1,0 +1,10 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetBucketInfo", "oss:GetBucketVersioning"],
+      "Resource": ["acs:oss:*:*:usapp-j4c-log-e3784866"]
+    }
+  ]
+}

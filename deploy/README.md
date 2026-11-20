@@ -12,8 +12,9 @@
 | --- | --- | --- |
 | [docker-compose.yml](docker-compose.yml) | 编排 `postgres` / `api` / `push-worker` / `caddy` / `test-runner` 五服务、固定子网与命名卷 | 已修正环境隔离、权限分离与测试运行器 |
 | [Caddyfile](Caddyfile) | 双站点反代：公开站点 `https://localhost:8443` 与管理站点 `https://localhost:8444` | 已配置基线响应头与管理隔离 |
+| [Caddyfile.lan](Caddyfile.lan) + [docker-compose.lan.yml](docker-compose.lan.yml) | 局域网 HTTPS 覆盖：公开站点 `https://10.6.245.114:8443`（等于 `PUBLIC_ORIGIN`），localhost:8443 跳转，管理站点不变 | 2026-10-27 已切换；compose 命令须叠加覆盖文件，见 [LOCAL-HTTPS.md](LOCAL-HTTPS.md) 第 9 节 |
 | [Dockerfile.api](Dockerfile.api) | C++17 / Drogon API 多阶段构建镜像（含 `builder` / `tester` / `runtime`） | 已补充 `libpq-dev` / `libpq5` 与 `tester` 测试阶段 |
-| [Dockerfile.push-worker](Dockerfile.push-worker) | Node.js 24 / TS 推送辅助镜像（多阶段构建） | 依赖锁文件待负责人生成 |
+| [Dockerfile.push-worker](Dockerfile.push-worker) | Node.js 24 / TS 推送辅助镜像（多阶段构建） | P2-5c：生产依赖与测试目标分离，已在隔离环境构建 |
 | [LOCAL-HTTPS.md](LOCAL-HTTPS.md) | 本地自签 CA 证书生成位置与操作系统信任库手动导入/移除指南 | 文档完备 |
 | [docker-entrypoint-initdb.d/01-init-roles.sh](docker-entrypoint-initdb.d/01-init-roles.sh) | 容器首次启动角色初始化：创建受限 `usapp_api` 与 `usapp_push` 账户 | 已配置最小 DML 权限与推送隔离 |
 | [.dockerignore](.dockerignore) 与根目录 `/.dockerignore` | 构建上下文排除清单：排除 `.env`、密钥私钥、构建目录与版本管理 | 仓库根目录已创建生效文件 |
@@ -33,7 +34,7 @@ flowchart TD
     caddy["caddy:2-alpine<br/>反向代理与 TLS 终止"]
     api["api (usapp_api)<br/>公开 :8080 / 管理 :8081"]
     pg[("postgres:17<br/>超级用户: postgres")]
-    push["push-worker:8090<br/>账户: usapp_push<br/>(默认关闭, profile=push)"]
+    push["push-worker:8090<br/>无数据库访问<br/>(默认关闭, profile=push)"]
     testRunner["test-runner<br/>(阶段 0 容器单测, profile=test)"]
 
     caddy -->|"/api/v1/* → api:8080"| api
@@ -73,7 +74,7 @@ flowchart TD
 | `caddy` | `0.0.0.0:8444` | `127.0.0.1:8444:8444` | **仅宿主机回环** | 管理控制台站点，禁止公网访问 |
 | `api` | `0.0.0.0:8080` | 不发布 | Caddy 代理 | 公开业务接口，不对宿主机暴露 |
 | `api` | `0.0.0.0:8081` | `127.0.0.1:8081:8081` | **仅宿主机回环** + CIDR 白名单 | 管理 API，供宿主排查 |
-| `push-worker` | `0.0.0.0:8090` | `127.0.0.1:8090:8090` | 仅宿主回环 + profile 门控 | 阶段 0 默认不启动 |
+| `push-worker` | `0.0.0.0:8090` | 不发布 | 仅容器私有网络 + 令牌认证 + profile 门控 | 默认不启动；启用须 `PUSH_WORKER_ENABLED=true` 与 `PUSH_WORKER_PRIVATE_NETWORK=true` |
 | `postgres` | `0.0.0.0:5432` | 默认不发布 | 仅容器网络内部访问 | 宿主机直连开发时可临时映射 `127.0.0.1:5432:5432` |
 
 ---
@@ -196,6 +197,6 @@ docker compose -f deploy/docker-compose.yml exec -T postgres rm -f /tmp/usapp_st
 
 ## 5. 待负责人完成项（外部条件）
 
-1. **真实依赖锁文件生成**：`services/push-worker/pnpm-lock.yaml` 须由负责人在本地环境运行 `pnpm install` 生成，不可手写。
+1. **依赖锁文件**：`services/push-worker/pnpm-lock.yaml` 已按 P2-5c 授权由包管理器生成（未提交），不可手写。
 2. **本地证书安装**：按照 [LOCAL-HTTPS.md](LOCAL-HTTPS.md) 将 `root.crt` 导入当前操作系统受信任根证书颁发机构。
 3. **真实网络冲突排查**：若 `172.28.0.0/16` 与宿主机已有 Docker 网络或内网网段冲突，须在 `docker-compose.yml` 及 `.env` 中同步调整。

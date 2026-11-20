@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="我们的小空间">
+  <title>我们的小空间</title>
+  <rect width="64" height="64" rx="14" fill="#FBF7F0"/>
+  <!-- 两个交叠的圆：两个人、两个颜色，交叠处是共同的部分 -->
+  <circle cx="26" cy="32" r="13" fill="#C2554A"/>
+  <circle cx="38" cy="32" r="13" fill="#2F4858" fill-opacity="0.92"/>
+</svg>

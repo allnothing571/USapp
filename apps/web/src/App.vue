@@ -5,10 +5,13 @@
  * - 新版本可用提示（prompt 模式下由用户确认刷新）
  * - RouterView 承载各页面
  * - 底部安装引导（InstallPrompt）
+ * - 底部导航（BottomNav，M10；只在首页 / 任务 / 奖励 / 我的显示）
  * - 启动时调用 session store 的 bootstrap（与路由守卫共用同一个在途请求，不会重复打接口）
  */
 import { onMounted } from 'vue'
 
+import NotificationEntry from '@/components/NotificationEntry.vue'
+import BottomNav from '@/components/BottomNav.vue'
 import InstallPrompt from '@/components/InstallPrompt.vue'
 import OfflineBanner from '@/components/OfflineBanner.vue'
 import { setupServiceWorker } from '@/pwa/register-sw'
@@ -37,10 +40,14 @@ onMounted(() => {
       <button type="button" class="app-notice__ghost" @click="dismissUpdate()">知道了</button>
     </div>
 
+    <NotificationEntry />
+
     <main class="app-main">
       <RouterView />
     </main>
 
     <InstallPrompt />
+
+    <BottomNav />
   </div>
 </template>

@@ -16,6 +16,11 @@ const SENSITIVE_KEYS = new Set([
   'email',
   'endpoint',
   'subscription',
+  'p256dh',
+  'auth',
+  'payload',
+  'marker',
+  'bearer',
 ]);
 
 const LEVEL_ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
@@ -48,7 +53,7 @@ export interface Logger {
   error(message: string, fields?: Record<string, unknown>): void;
 }
 
-export function createLogger(component: string, version: string): Logger {
+export function createLogger(component: string, version: string, sink?: (line: string) => void): Logger {
   const threshold = LEVEL_ORDER[currentLevel()];
 
   const emit = (level: Level, message: string, fields?: Record<string, unknown>): void => {
@@ -62,7 +67,9 @@ export function createLogger(component: string, version: string): Logger {
       ...(fields === undefined ? {} : (redact(fields) as Record<string, unknown>)),
     };
     const serialized = JSON.stringify(line);
-    if (level === 'error' || level === 'warn') {
+    if (sink !== undefined) {
+      sink(serialized);
+    } else if (level === 'error' || level === 'warn') {
       process.stderr.write(`${serialized}\n`);
     } else {
       process.stdout.write(`${serialized}\n`);

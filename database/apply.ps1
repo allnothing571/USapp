@@ -616,6 +616,13 @@ if ($tableExists) {
     Write-Host "[info ] 表 public.schema_migrations 尚未建立 (将由 0000_schema_migrations.sql 创建)。"
 }
 
+# D2. D6 M1d: a role belongs to the whole cluster, and 0039 reuses one of this name. Refuse before any migration can grant it anything. Nothing here changes it.
+$eraserCheck = Invoke-PsqlQuery -Sql "SELECT concat_ws(',', CASE WHEN r.rolsuper THEN 'superuser' END, CASE WHEN r.rolcanlogin THEN 'login' END, CASE WHEN r.rolcreaterole THEN 'createrole' END, CASE WHEN r.rolcreatedb THEN 'createdb' END, CASE WHEN r.rolreplication THEN 'replication' END, CASE WHEN r.rolbypassrls THEN 'bypassrls' END, CASE WHEN r.rolinherit THEN 'inherit' END, CASE WHEN r.rolconfig IS NOT NULL THEN 'role_settings' END, CASE WHEN EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid = r.oid) THEN 'has_members' END, CASE WHEN EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid) THEN 'has_memberships' END, CASE WHEN EXISTS (SELECT 1 FROM pg_default_acl d WHERE d.defaclrole = r.oid) THEN 'default_privileges' END, CASE WHEN EXISTS (SELECT 1 FROM pg_class c WHERE c.relowner = r.oid) THEN 'owns_relation' END) FROM pg_roles r WHERE r.rolname = 'usapp_memory_eraser';"
+$eraserCheckStr = if ($eraserCheck -is [array]) { ($eraserCheck -join '').Trim() } else { "$eraserCheck".Trim() }
+if (-not [string]::IsNullOrWhiteSpace($eraserCheckStr)) {
+    throw "USAPP_MEMORY_ERASER_UNSAFE: an existing role named usapp_memory_eraser is not safe to use ($eraserCheckStr). Review it and resolve it by hand; this script has not changed it and applied nothing."
+}
+
 # E. 遍历迁移文件，对比已应用记录与 checksum
 $pendingCount = 0
 $skipCount = 0

@@ -43,6 +43,10 @@ DECLARE
     op2 uuid;
     tag text := substr(md5(random()::text), 1, 8);
     fp  text := md5(random()::text) || md5(random()::text);
+    t3 uuid := gen_random_uuid();  -- M6: open one-off task (A -> B)
+    t4 uuid := gen_random_uuid();  -- M6: daily template (A -> B)
+    pr uuid;
+    sx uuid;
 BEGIN
     -- ---------- 目标库守卫（必须先于任何夹具 DML） ----------
     IF current_database() IS DISTINCT FROM 'usapp_test' THEN
@@ -518,7 +522,33 @@ BEGIN
         -- 有待触发的延迟事件时 PostgreSQL 拒绝 TRUNCATE（55006），先让它们立即执行（此时顶层数据合法）。
         SET CONSTRAINTS ALL IMMEDIATE;
         BEGIN  -- E5 维护角色：两张任务表一起 TRUNCATE（外键检查通过后由触发器拒绝）
-            TRUNCATE tasks, task_completions;
+            IF to_regclass('public.task_progress_events') IS NULL THEN
+                TRUNCATE tasks, task_completions;
+            ELSIF to_regclass('public.task_closures') IS NULL THEN
+                TRUNCATE tasks, task_completions, task_progress_events;
+            ELSE
+                -- M6 tables reference tasks; listing them keeps the FK check from masking UT001.
+                -- 0023 adds the push dispatch chain referencing notifications: listed last, no CASCADE.
+                -- 0025 adds reminder rules and occurrences referencing tasks: listed last, no CASCADE.
+                IF to_regclass('public.reminder_occurrences') IS NOT NULL THEN
+                    TRUNCATE tasks, task_completions, task_progress_events, task_change_proposals, task_change_decisions, task_closures, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, reminder_occurrences, reminder_rules;
+                ELSIF to_regclass('public.push_deliveries') IS NOT NULL THEN
+                    TRUNCATE tasks, task_completions, task_progress_events, task_change_proposals, task_change_decisions, task_closures, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations;
+                ELSIF to_regclass('public.task_reactions') IS NOT NULL THEN
+                    TRUNCATE tasks, task_completions, task_progress_events, task_change_proposals, task_change_decisions, task_closures, notifications, notification_reads, notification_intents, task_reactions;
+                ELSIF to_regclass('public.notification_intents') IS NOT NULL THEN
+                    TRUNCATE tasks, task_completions, task_progress_events,
+                             task_change_proposals, task_change_decisions, task_closures,
+                             notifications, notification_reads, notification_intents;
+                ELSIF to_regclass('public.notifications') IS NOT NULL THEN
+                    TRUNCATE tasks, task_completions, task_progress_events,
+                             task_change_proposals, task_change_decisions, task_closures,
+                             notifications, notification_reads;
+                ELSE
+                    TRUNCATE tasks, task_completions, task_progress_events,
+                             task_change_proposals, task_change_decisions, task_closures;
+                END IF;
+            END IF;
             RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'E5 失败：意外成功';
         EXCEPTION
             WHEN SQLSTATE 'UWT00' THEN RAISE;
@@ -528,6 +558,215 @@ BEGIN
         SET CONSTRAINTS ALL DEFERRED;
     END IF;
     n_passed := n_passed + 1;
+
+    -- ================================================================
+    -- F. M6 change proposals, decisions and closures (only when 0013 is applied)
+    --    Every case runs in a sub-block that is rolled back; direct SQL as either role.
+    -- ================================================================
+    IF to_regclass('public.task_closures') IS NOT NULL THEN
+        INSERT INTO tasks (id, couple_id, creator_id, assignee_id, title, reward_flowers, reward_sunshine,
+                           create_idempotency_key, create_fingerprint)
+            VALUES (t3, c1, ua, ub, 'Change me', 2, 0, 'psql-task-key-f-' || tag, fp);
+        INSERT INTO tasks (id, couple_id, creator_id, assignee_id, title, reward_flowers, reward_sunshine,
+                           create_idempotency_key, create_fingerprint, completion_mode, target_count, schedule_type)
+            VALUES (t4, c1, ua, ub, 'Daily change', 1, 0, 'psql-task-key-d-' || tag, fp, 'count', 1, 'daily');
+
+        BEGIN  -- F1 the new tables are append-only
+            UPDATE task_change_proposals SET kind = kind WHERE task_id = t3;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F1 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> (CASE WHEN is_app THEN '42501' ELSE 'UT001' END) THEN
+                    RAISE EXCEPTION 'F1 失败：身份 % 实际 %', run_role, SQLSTATE;
+                END IF;
+        END;
+        BEGIN
+            DELETE FROM task_closures WHERE task_id = t3;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F1b 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> (CASE WHEN is_app THEN '42501' ELSE 'UT001' END) THEN
+                    RAISE EXCEPTION 'F1b 失败：身份 % 实际 %', run_role, SQLSTATE;
+                END IF;
+        END;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F2 only the creator proposes an edit (UX002)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, title, description,
+                reward_flowers, reward_sunshine, completion_mode, target_count, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ub, 'edit', 'Changed', '', 3, 0, 'single', 1, 'psql-change-f2-' || tag, fp);
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F2 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> 'UX002' THEN RAISE EXCEPTION 'F2 失败：期望 UX002，实际 %', SQLSTATE; END IF;
+        END;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F3 one undecided proposal per root (UX002); F4 the proposer cannot approve (UX003)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ub, 'cancel', 'psql-change-f3-' || tag, fp) RETURNING id INTO pr;
+            BEGIN
+                INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                    VALUES (c1, t3, ua, 'cancel', 'psql-change-f3b-' || tag, fp);
+                RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F3 失败：意外成功';
+            EXCEPTION
+                WHEN SQLSTATE 'UWT00' THEN RAISE;
+                WHEN OTHERS THEN
+                    IF SQLSTATE <> 'UX002' THEN RAISE EXCEPTION 'F3 失败：期望 UX002，实际 %', SQLSTATE; END IF;
+            END;
+            BEGIN
+                INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, idempotency_key, request_fingerprint)
+                    VALUES (pr, c1, ub, 'approved', 'psql-change-f4-' || tag, fp);
+                RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F4 失败：意外成功';
+            EXCEPTION
+                WHEN SQLSTATE 'UWT00' THEN RAISE;
+                WHEN OTHERS THEN
+                    IF SQLSTATE <> 'UX003' THEN RAISE EXCEPTION 'F4 失败：期望 UX003，实际 %', SQLSTATE; END IF;
+            END;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F3/F4 正常结束（子块回滚）';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN
+                IF SQLERRM <> 'F3/F4 正常结束（子块回滚）' THEN RAISE; END IF;
+        END;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F5 a rejected decision cannot close the task (UX004)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ub, 'cancel', 'psql-change-f5-' || tag, fp) RETURNING id INTO pr;
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ua, 'rejected', 'psql-change-f5d-' || tag, fp);
+            INSERT INTO task_closures (task_id, couple_id, reason, proposal_id, closed_at)
+                SELECT t3, c1, 'cancelled', pr, d.decided_at FROM task_change_decisions d WHERE d.proposal_id = pr;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F5 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> 'UX004' THEN RAISE EXCEPTION 'F5 失败：期望 UX004，实际 %', SQLSTATE; END IF;
+        END;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F6 an approved decision without its closure fails the deferred link check (UX005)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ub, 'cancel', 'psql-change-f6-' || tag, fp) RETURNING id INTO pr;
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ua, 'approved', 'psql-change-f6d-' || tag, fp);
+            SET CONSTRAINTS ALL IMMEDIATE;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F6 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> 'UX005' THEN RAISE EXCEPTION 'F6 失败：期望 UX005，实际 %', SQLSTATE; END IF;
+        END;
+        SET CONSTRAINTS ALL DEFERRED;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F7 a valid cancellation; afterwards progress/completion are rejected (UX006)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ub, 'cancel', 'psql-change-f7-' || tag, fp) RETURNING id INTO pr;
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ua, 'approved', 'psql-change-f7d-' || tag, fp);
+            INSERT INTO task_closures (task_id, couple_id, reason, proposal_id, closed_at)
+                SELECT t3, c1, 'cancelled', pr, d.decided_at FROM task_change_decisions d WHERE d.proposal_id = pr;
+            SET CONSTRAINTS ALL IMMEDIATE;
+            SET CONSTRAINTS ALL DEFERRED;
+            BEGIN
+                op2 := gen_random_uuid();
+                INSERT INTO wallet_operations (id, couple_id, actor_user_id, operation_type, source_type, source_id)
+                    VALUES (op2, c1, ub, 'TASK_REWARD', 'task', t3::text);
+                INSERT INTO task_completions (task_id, couple_id, completed_by, operation_id, reward_flowers,
+                                              reward_sunshine, completed_at)
+                    VALUES (t3, c1, ub, op2, 2, 0, clock_timestamp());
+                RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F7 失败：意外成功';
+            EXCEPTION
+                WHEN SQLSTATE 'UWT00' THEN RAISE;
+                WHEN OTHERS THEN
+                    IF SQLSTATE <> 'UX006' THEN RAISE EXCEPTION 'F7 失败：期望 UX006，实际 %', SQLSTATE; END IF;
+            END;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F7 正常结束（子块回滚）';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN
+                IF SQLERRM <> 'F7 正常结束（子块回滚）' THEN RAISE; END IF;
+        END;
+        SET CONSTRAINTS ALL DEFERRED;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F8 a cancelled daily template cannot materialize a period (UX007)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, idempotency_key, request_fingerprint)
+                VALUES (c1, t4, ua, 'cancel', 'psql-change-f8-' || tag, fp) RETURNING id INTO pr;
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ub, 'approved', 'psql-change-f8d-' || tag, fp);
+            INSERT INTO task_closures (task_id, couple_id, reason, proposal_id, closed_at)
+                SELECT t4, c1, 'cancelled', pr, d.decided_at FROM task_change_decisions d WHERE d.proposal_id = pr;
+            INSERT INTO tasks (couple_id, creator_id, assignee_id, title, description, reward_flowers, reward_sunshine,
+                               timezone, deadline_local_date, deadline_at, create_idempotency_key, create_fingerprint,
+                               created_at, completion_mode, target_count, recurrence_id, period_date)
+                SELECT r.couple_id, r.creator_id, r.assignee_id, r.title, r.description, r.reward_flowers,
+                       r.reward_sunshine, r.timezone, x.d, (x.d + 1)::timestamp AT TIME ZONE 'Asia/Shanghai',
+                       'psql-task-key-p-' || tag, r.create_fingerprint, clock_timestamp(), r.completion_mode,
+                       r.target_count, r.id, x.d
+                  FROM tasks r CROSS JOIN (SELECT (clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date AS d) x
+                 WHERE r.id = t4;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F8 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> 'UX007' THEN RAISE EXCEPTION 'F8 失败：期望 UX007，实际 %', SQLSTATE; END IF;
+        END;
+        n_passed := n_passed + 1;
+
+        BEGIN  -- F9 an approved edit with an exact successor passes; a mismatched successor fails (UX005)
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, title, description,
+                reward_flowers, reward_sunshine, completion_mode, target_count, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ua, 'edit', 'Changed', '', 3, 0, 'single', 1, 'psql-change-f9-' || tag, fp)
+                RETURNING id INTO pr;
+            sx := gen_random_uuid();
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, successor_task_id,
+                                               idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ub, 'approved', sx, 'psql-change-f9d-' || tag, fp);
+            INSERT INTO tasks (id, couple_id, creator_id, assignee_id, title, description, reward_flowers,
+                               reward_sunshine, create_idempotency_key, create_fingerprint, created_at)
+                SELECT sx, c1, ua, ub, 'Changed', '', 3, 0, 'chg:' || pr::text, fp, d.decided_at
+                  FROM task_change_decisions d WHERE d.proposal_id = pr;
+            INSERT INTO task_closures (task_id, couple_id, reason, proposal_id, closed_at)
+                SELECT t3, c1, 'superseded', pr, d.decided_at FROM task_change_decisions d WHERE d.proposal_id = pr;
+            SET CONSTRAINTS ALL IMMEDIATE;
+            SET CONSTRAINTS ALL DEFERRED;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F9 正常结束（子块回滚）';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN
+                IF SQLERRM <> 'F9 正常结束（子块回滚）' THEN RAISE; END IF;
+            WHEN OTHERS THEN
+                RAISE EXCEPTION 'F9 失败：合法替换被拒绝 %', SQLSTATE;
+        END;
+        SET CONSTRAINTS ALL DEFERRED;
+        BEGIN
+            INSERT INTO task_change_proposals (couple_id, task_id, proposer_id, kind, title, description,
+                reward_flowers, reward_sunshine, completion_mode, target_count, idempotency_key, request_fingerprint)
+                VALUES (c1, t3, ua, 'edit', 'Changed', '', 3, 0, 'single', 1, 'psql-change-f9b-' || tag, fp)
+                RETURNING id INTO pr;
+            sx := gen_random_uuid();
+            INSERT INTO task_change_decisions (proposal_id, couple_id, decided_by, outcome, successor_task_id,
+                                               idempotency_key, request_fingerprint)
+                VALUES (pr, c1, ub, 'approved', sx, 'psql-change-f9e-' || tag, fp);
+            INSERT INTO tasks (id, couple_id, creator_id, assignee_id, title, description, reward_flowers,
+                               reward_sunshine, create_idempotency_key, create_fingerprint, created_at)
+                SELECT sx, c1, ua, ub, 'Changed', '', 4, 0, 'chg:' || pr::text, fp, d.decided_at
+                  FROM task_change_decisions d WHERE d.proposal_id = pr;
+            INSERT INTO task_closures (task_id, couple_id, reason, proposal_id, closed_at)
+                SELECT t3, c1, 'superseded', pr, d.decided_at FROM task_change_decisions d WHERE d.proposal_id = pr;
+            SET CONSTRAINTS ALL IMMEDIATE;
+            RAISE EXCEPTION USING ERRCODE = 'UWT00', MESSAGE = 'F9b 失败：意外成功';
+        EXCEPTION
+            WHEN SQLSTATE 'UWT00' THEN RAISE;
+            WHEN OTHERS THEN
+                IF SQLSTATE <> 'UX005' THEN RAISE EXCEPTION 'F9b 失败：期望 UX005，实际 %', SQLSTATE; END IF;
+        END;
+        SET CONSTRAINTS ALL DEFERRED;
+        n_passed := n_passed + 1;
+    END IF;
 
     -- 顶层数据未被任何子块改动：合法结算仍是两条流水。
     IF (SELECT count(*) FROM wallet_ledger_entries WHERE operation_id = op1) <> 2 THEN

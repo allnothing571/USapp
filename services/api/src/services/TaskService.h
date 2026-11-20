@@ -22,6 +22,7 @@
 // =====================================================================
 #pragma once
 
+#include <drogon/orm/Row.h>
 #include <json/json.h>
 
 #include <cstddef>
@@ -31,6 +32,7 @@
 #include <vector>
 
 #include "core/Errors.h"
+#include "services/NotificationIntent.h"
 
 namespace usapp {
 
@@ -61,12 +63,12 @@ class TaskService {
     };
 
     // 标题：严格 UTF-8；C0（含 \t \n \r）、DEL、C1、U+2028、U+2029 在任何位置都拒绝；
-    //   去掉首尾 Unicode Zs 空白；1..40 个码点。成功时 out 为规范化后的值。
-    static TextError normalizeTitle(const std::string &raw, std::string &out);
+    //   去掉首尾 Unicode Zs 空白；1..40 个码点（其他资源可传自己的上限）。成功时 out 为规范化后的值。
+    static TextError normalizeTitle(const std::string &raw, std::string &out, size_t maxCodePoints = kTitleMaxCodePoints);
 
     // 描述：严格 UTF-8；先把 CRLF 归一为 LF；之后单独的 CR、LF 以外的 C0、DEL、C1、
-    //   U+2028、U+2029 一律拒绝；再去掉首尾的 Unicode Zs 空白与 LF；0..500 个码点。
-    static TextError normalizeDescription(const std::string &raw, std::string &out);
+    //   U+2028、U+2029 一律拒绝；再去掉首尾的 Unicode Zs 空白与 LF；0..500 个码点（其他资源可传自己的上限）。
+    static TextError normalizeDescription(const std::string &raw, std::string &out, size_t maxCodePoints = kDescriptionMaxCodePoints);
 
     // Idempotency-Key：16..128 个 [A-Za-z0-9_-] 字符（客户端发送随机 UUID）。
     static bool validIdempotencyKey(const std::string &key);
@@ -76,13 +78,23 @@ class TaskService {
         std::string description;  // 已规范化，可为空串
         int rewardFlowers = 0;
         int rewardSunshine = 0;
+        std::string completionMode = "single";
+        int targetCount = 1;
+        std::string scheduleType = "one_off";
         std::string deadlineLocalDate;  // 'YYYY-MM-DD'，空串表示没有截止时间
         std::string deadlineLocalTime;  // 'HH:MM'，空串表示只有日期
+        // M5-C custom range: inclusive start date; the inclusive end date is
+        // deadlineLocalDate (date only). Empty for every other schedule.
+        std::string startDate;
     };
 
     // 纯函数：校验请求体（必须恰好由允许的字段组成）与非时间规则。
     // 失败时返回 false，message 为不回显输入的中文提示。截止时间是否在未来不在这里检查。
     static bool parseCreateRequest(const Json::Value &body, CreateInput &out, std::string &message);
+    static bool validPeriodDate(const std::string &date);
+    // M5-B: a valid period date that is a Monday (ISO weekday 1), the stored
+    // identity of a weekly period in Asia/Shanghai.
+    static bool isWeekStart(const std::string &date);
 
     // 发布请求指纹：小写 SHA-256 十六进制；规范串为 "create-task:v1:" 加上
     // 按固定顺序、带字节长度的各字段（第 4.5 节）。
@@ -135,17 +147,44 @@ class TaskService {
         std::string assigneeId;
         int rewardFlowers = 0;
         int rewardSunshine = 0;
+        std::string completionMode = "single";
+        int targetCount = 1;
+        int progressCount = 0;
+        std::string scheduleType = "one_off";
+        std::string periodDate;  // Daily date or weekly Monday in Asia/Shanghai; empty for one-off tasks.
+        std::string startDate;   // Custom range start date (inclusive); empty otherwise.
         std::string deadlineLocalDate;  // 空串：没有截止时间
         std::string deadlineLocalTime;  // 空串：只有日期
         std::string deadlineAt;         // 六位小数 UTC
-        std::string status;             // open | completed | expired
+        // open | completed | expired | upcoming (custom range not started) | cancelled | superseded (M6)
+        std::string status;
         std::string completedAt;        // 空串：未完成
         std::string createdAt;          // 六位小数 UTC
+        // M6 current derived state (database JSON text; empty when absent): the root's
+        // closure, the predecessor root of a successor, and an undecided change proposal.
+        std::string closureJson;
+        std::string replaces;
+        std::string pendingChangeJson;
+        std::string reactionJson;  // P2-4: the immutable reaction to this exact completion.
         // 游标字段（不进入响应）
         std::string historyAt;
     };
 
     static Json::Value taskJson(const TaskData &task);
+
+    // M3-C1（D41）：与发布、列表、详情相同的行映射与列清单，供完成服务读回与重放复用。
+    // 列表 history 视图以 withHistory = true 调用以填充 historyAt；其他调用使用默认值。
+    // 列缺失或类型不符时抛异常。列清单引用别名 t（tasks）与 c（task_completions）。
+    static TaskData taskFromRow(const drogon::orm::Row &row, bool withHistory = false);
+    static const char *taskColumnsSql();
+
+    // M6: why an undecided proposal of this kind cannot be approved now, judged from
+    // the row's current derived state ("" when approvable; "progress", "completed",
+    // "expired" or "closed" otherwise). Reject and withdraw always stay possible.
+    static std::string changeBlockedReason(const TaskData &task, const std::string &kind);
+    // M6: public edit terms from a flat proposal object (database json_build_object keys);
+    // null for a cancellation. Shared by task reads and change responses.
+    static Json::Value changeTermsJson(const Json::Value &flatProposal);
 
     enum class Outcome {
         Created,            // 201：新任务，提交已确认
@@ -173,6 +212,9 @@ class TaskService {
         std::string message;  // 面向用户（中文，不回显输入）
         std::string detail;   // 只写日志；固定的阶段/原因标签（failureDetail），不含输入或数据库错误文本
         TaskData task;
+        // P2-3b: original notification facts of a publication (Json null: legacy operation
+        // without a recorded intent, or not a publication).
+        Json::Value notification;
         bool success() const {
             return outcome == Outcome::Created || outcome == Outcome::Replayed || outcome == Outcome::Ok;
         }
@@ -190,10 +232,13 @@ class TaskService {
     using ListCallback = std::function<void(ListResult)>;
 
     // 发布。userId 来自会话；idempotencyKey 必须已通过 validIdempotencyKey。
+    // P2-3b: notifyChoice is the optional "notify_partner" (omitted keeps the legacy
+    // fingerprint and is never remembered); see services/NotificationIntent.h.
     void createTask(const std::string &userId,
                     const CreateInput &input,
                     const std::string &idempotencyKey,
-                    StatusCallback cb);
+                    StatusCallback cb,
+                    intent::Choice notifyChoice = {});
 
     void listTasks(const std::string &userId,
                    View view,
@@ -201,7 +246,8 @@ class TaskService {
                    int limit,
                    ListCallback cb);
 
-    void getTask(const std::string &userId, const std::string &taskId, StatusCallback cb);
+    void getTask(const std::string &userId, const std::string &taskId, StatusCallback cb,
+                 const std::string &periodDate = "");
 
   private:
     TaskService() = default;

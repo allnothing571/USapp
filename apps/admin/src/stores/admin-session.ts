@@ -28,6 +28,8 @@ function describeError(error: unknown): { code: string; message: string } {
 export const useAdminSessionStore = defineStore('admin-session', () => {
   // ── 状态 ──
   const authenticated = ref(false);
+  /** Invalidate operation state even when the same admin signs in again. */
+  const epoch = ref(0);
   const admin = ref<AdminIdentity | null>(null);
   /** 仅用于展示"我已经引导过了"，不作为认证凭据使用。 */
   const bootstrapped = ref(false);
@@ -56,6 +58,7 @@ export const useAdminSessionStore = defineStore('admin-session', () => {
    * 用于"需要立刻表现为已注销，但还想把失败原因显示出来"的场景。
    */
   function clearIdentity(): void {
+    epoch.value++;
     authenticated.value = false;
     admin.value = null;
   }
@@ -74,6 +77,7 @@ export const useAdminSessionStore = defineStore('admin-session', () => {
     authenticated: boolean;
     admin?: AdminIdentity;
   }): void {
+    epoch.value++;
     authenticated.value = payload.authenticated;
     admin.value = payload.authenticated ? (payload.admin ?? null) : null;
     bootstrapped.value = true;
@@ -142,6 +146,7 @@ export const useAdminSessionStore = defineStore('admin-session', () => {
   }
 
   return {
+    epoch,
     // 状态
     authenticated,
     admin,

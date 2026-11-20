@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "placeholder": true,
+  "canvas": [
+    512,
+    512
+  ],
+  "base": {
+    "file": "base.placeholder.v1.svg",
+    "sha256": "79ef7758522dd6c977a198025e34f210b810b888999792abdef71dfab3138746"
+  },
+  "assets": {
+    "hair.placeholder_bob.v1": {
+      "category": "hair",
+      "family": "hair.placeholder_bob",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "back": {
+          "file": "hair.placeholder_bob.v1.back.svg",
+          "sha256": "7e6affcaa86b4e23932daeb95072c8c21924b16b439eb8b7b5908de5192d17c1"
+        },
+        "front": {
+          "file": "hair.placeholder_bob.v1.front.svg",
+          "sha256": "c9d71c88506f0215012d67754a645cfff5d887f9e5c98550fa2e3de745a4ec0f"
+        },
+        "front_under_hat": {
+          "file": "hair.placeholder_bob.v1.front_under_hat.svg",
+          "sha256": "3710803cf0f31edfbd8cde6cfcee03a74697ef9849543142c3b20b82b57c021d"
+        }
+      }
+    },
+    "hair.placeholder_wave.v1": {
+      "category": "hair",
+      "family": "hair.placeholder_wave",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "back": {
+          "file": "hair.placeholder_wave.v1.back.svg",
+          "sha256": "02608718352dad09ac232e139420c1101bb4ddec5c2d64b710c6e1c9125075e5"
+        },
+        "front": {
+          "file": "hair.placeholder_wave.v1.front.svg",
+          "sha256": "426abf01b8e04f91d915b8894ca204e2faa9b21adb2529466138a7efcac49a9b"
+        },
+        "front_under_hat": {
+          "file": "hair.placeholder_wave.v1.front_under_hat.svg",
+          "sha256": "cc4dd9d91fdd67b025e31df731c709ff58895f34e9401c59fb34e2f2b4098deb"
+        }
+      }
+    },
+    "clothes.placeholder_cream.v1": {
+      "category": "clothes",
+      "family": "clothes.placeholder_cream",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "clothes.placeholder_cream.v1.main.svg",
+          "sha256": "d3c06e08ce102d716858504f7aeb14d57433478a8f7fbbc4a67e56dff887a636"
+        }
+      }
+    },
+    "clothes.placeholder_teal.v1": {
+      "category": "clothes",
+      "family": "clothes.placeholder_teal",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "clothes.placeholder_teal.v1.main.svg",
+          "sha256": "653f5226642eba3ba7411712b21062bf6bbe7bf8d9b2cb136db9e418cd446476"
+        }
+      }
+    },
+    "expression.placeholder_smile.v1": {
+      "category": "expression",
+      "family": "expression.placeholder_smile",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "expression.placeholder_smile.v1.main.svg",
+          "sha256": "90124b9d3f1e0ac0d961d453e390d33c9dca6fbc0bbb801cf4faa82a2260d030"
+        }
+      }
+    },
+    "expression.placeholder_wink.v1": {
+      "category": "expression",
+      "family": "expression.placeholder_wink",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "expression.placeholder_wink.v1.main.svg",
+          "sha256": "930e3cc09918d3b786da6bf4d2a5ce2871910273a82c03825ca361fd06189d97"
+        }
+      }
+    },
+    "hat.placeholder_cap.v1": {
+      "category": "hat",
+      "family": "hat.placeholder_cap",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": true,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "hat.placeholder_cap.v1.main.svg",
+          "sha256": "daf49655bf1de4596b198bf2e58eb6497379ebc124340be73e962e6cb19fd59e"
+        }
+      }
+    },
+    "handheld.placeholder_flower.v1": {
+      "category": "handheld",
+      "family": "handheld.placeholder_flower",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "handheld.placeholder_flower.v1.main.svg",
+          "sha256": "1cae735f2af91c89ac2c247cd1b6f1510da25ceb3a48f078219e519d2f278f8f"
+        }
+      }
+    },
+    "accessory.placeholder_bow.v1": {
+      "category": "accessory",
+      "family": "accessory.placeholder_bow",
+      "revision": 1,
+      "format": "svg",
+      "covers_hair_top": null,
+      "accessory_position": "neck",
+      "layers": {
+        "main": {
+          "file": "accessory.placeholder_bow.v1.main.svg",
+          "sha256": "dbb27f711b7b53bf4efbd5ba6fd838658b958fd8aa1b4fd9cd876304e4484f12"
+        }
+      }
+    }
+  }
+}

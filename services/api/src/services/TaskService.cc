@@ -2,6 +2,7 @@
 // services/api/src/services/TaskService.cc
 // =====================================================================
 #include "services/TaskService.h"
+#include "services/TaskStateSql.h"
 
 #include <drogon/drogon.h>
 #include <drogon/orm/Exception.h>
@@ -211,17 +212,46 @@ std::optional<std::string> base64UrlDecode(const std::string &in) {
 
 // ---------------------------------------------------------------- SQL
 #define USAPP_TS(expr) "to_char((" expr ") AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')"
+// M6 row closure and the derived status live in TaskStateSql.h, shared with the admin task reads (same SQL text).
+#define USAPP_ROW_CLOSURE USAPP_TASK_ROW_CLOSURE
 
 const char *kTaskColumns =
-    "t.id::text AS id, t.title, t.description, "
+    "COALESCE(t.recurrence_id, t.id)::text AS id, t.title, t.description, "
     "t.creator_id::text AS creator_id, t.assignee_id::text AS assignee_id, "
-    "t.reward_flowers, t.reward_sunshine, "
+    "t.reward_flowers, t.reward_sunshine, t.completion_mode, t.target_count, "
+    // A stored period reports its template's schedule (daily or weekly).
+    "COALESCE((SELECT r.schedule_type FROM tasks r WHERE r.id = t.recurrence_id), t.schedule_type) AS schedule_type, "
+    "to_char(t.period_date, 'YYYY-MM-DD') AS period_date, "
+    "to_char(t.start_local_date, 'YYYY-MM-DD') AS start_date, "
+    "CASE WHEN t.completion_mode = 'single' THEN CASE WHEN c.task_id IS NULL THEN 0 ELSE 1 END "
+    "ELSE COALESCE((SELECT p.progress_count FROM task_progress_events p WHERE p.task_id = t.id "
+    "ORDER BY p.progress_count DESC LIMIT 1), 0) END AS progress_count, "
     "to_char(t.deadline_local_date, 'YYYY-MM-DD') AS deadline_local_date, "
     "substr(t.deadline_local_time::text, 1, 5) AS deadline_local_time, " USAPP_TS("t.deadline_at") " AS deadline_at, "
     USAPP_TS("c.completed_at") " AS completed_at, " USAPP_TS("t.created_at") " AS created_at, "
-    "CASE WHEN c.task_id IS NOT NULL THEN 'completed' "
-    "     WHEN t.deadline_at IS NOT NULL AND t.deadline_at <= now() THEN 'expired' "
-    "     ELSE 'open' END AS status";
+    USAPP_TASK_STATUS_CASE " AS status, "
+    // M6 current derived state: the template/task closure, lineage and an undecided proposal.
+    "(SELECT json_build_object('reason', k.reason, 'closed_at', " USAPP_TS("k.closed_at") ", "
+    "'replaced_by', d.successor_task_id)::text FROM task_closures k "
+    "LEFT JOIN task_change_decisions d ON d.proposal_id = k.proposal_id "
+    "WHERE k.task_id = COALESCE(t.recurrence_id, t.id)) AS closure_json, "
+    "(SELECT p.task_id::text FROM task_change_decisions d JOIN task_change_proposals p ON p.id = d.proposal_id "
+    "WHERE d.successor_task_id = COALESCE(t.recurrence_id, t.id)) AS replaces, "
+    "(SELECT json_build_object('id', p.id, 'kind', p.kind, 'proposer_id', p.proposer_id, "
+    "'created_at', " USAPP_TS("p.created_at") ", 'title', p.title, 'description', p.description, "
+    "'reward_flowers', p.reward_flowers, 'reward_sunshine', p.reward_sunshine, "
+    "'completion_mode', p.completion_mode, 'target_count', p.target_count, "
+    "'deadline_local_date', to_char(p.deadline_local_date, 'YYYY-MM-DD'), "
+    "'deadline_local_time', substr(p.deadline_local_time::text, 1, 5), "
+    "'start_date', to_char(p.start_local_date, 'YYYY-MM-DD'))::text "
+    "FROM task_change_proposals p WHERE p.task_id = COALESCE(t.recurrence_id, t.id) "
+    "AND NOT EXISTS (SELECT 1 FROM task_change_decisions d WHERE d.proposal_id = p.id) "
+    // Shown on root rows and on the current period of a template, not on its history.
+    "AND (t.recurrence_id IS NULL OR t.deadline_at > now())) AS pending_json, "
+    "(SELECT json_build_object('id',rx.id,'task_id',COALESCE(t.recurrence_id,t.id),"
+    "'period_date',to_char(t.period_date,'YYYY-MM-DD'),'author_id',rx.author_id,'kind',rx.kind,"
+    "'emoji_code',rx.emoji_code,'body',rx.body,'created_at'," USAPP_TS("rx.created_at") ")::text "
+    "FROM task_reactions rx WHERE rx.completion_task_id=t.id) AS reaction_json";
 
 // 列表：调用者的成员关系行 LEFT JOIN LATERAL 当前视图的一页。
 // 没有成员关系 -> 0 行（SPACE_NOT_FOUND）；有成员关系但没有任务 -> 1 行且 id 为 NULL。
@@ -230,12 +260,13 @@ std::string openSql(const std::string &predicate, const std::string &limitParam)
     return std::string("SELECT m.couple_id::text AS couple_id, x.* FROM couple_members m "
                        "LEFT JOIN LATERAL (SELECT ") +
            kTaskColumns +
-           ", t.deadline_at AS sort_dl, t.created_at AS sort_ca, t.id AS sort_id "
-           "FROM tasks t LEFT JOIN task_completions c ON c.task_id = t.id "
+           ", t.deadline_at AS sort_dl, t.created_at AS sort_ca, COALESCE(t.recurrence_id, t.id) AS sort_id "
+           "FROM task_read_model t LEFT JOIN task_completions c ON c.task_id = t.id "
            "WHERE t.couple_id = m.couple_id AND c.task_id IS NULL "
-           "AND (t.deadline_at IS NULL OR t.deadline_at > now()) " +
+           "AND (t.deadline_at IS NULL OR t.deadline_at > now()) "
+           "AND NOT EXISTS (SELECT 1 " USAPP_ROW_CLOSURE ") " +
            predicate +
-           " ORDER BY t.deadline_at ASC NULLS LAST, t.created_at ASC, t.id ASC LIMIT " + limitParam +
+           " ORDER BY t.deadline_at ASC NULLS LAST, t.created_at ASC, COALESCE(t.recurrence_id, t.id) ASC LIMIT " + limitParam +
            "::integer) x ON true WHERE m.user_id = $1::uuid "
            "ORDER BY x.sort_dl ASC NULLS LAST, x.sort_ca ASC, x.sort_id ASC";
 }
@@ -243,14 +274,18 @@ std::string openSql(const std::string &predicate, const std::string &limitParam)
 std::string historySql(const std::string &predicate, const std::string &limitParam) {
     return std::string("SELECT m.couple_id::text AS couple_id, x.* FROM couple_members m "
                        "LEFT JOIN LATERAL (SELECT ") +
-           kTaskColumns + ", " USAPP_TS("COALESCE(c.completed_at, t.deadline_at)") " AS history_at, "
-           "COALESCE(c.completed_at, t.deadline_at) AS sort_ha, t.id AS sort_id "
-           "FROM tasks t LEFT JOIN task_completions c ON c.task_id = t.id "
+           kTaskColumns + ", " USAPP_TS("COALESCE(c.completed_at, kc.closed_at, t.deadline_at)") " AS history_at, "
+           "COALESCE(c.completed_at, kc.closed_at, t.deadline_at) AS sort_ha, t.id AS sort_id "
+           "FROM task_read_model t LEFT JOIN task_completions c ON c.task_id = t.id "
+           // M6: a closed row is history from its immutable closed_at (stable pagination key).
+           "LEFT JOIN LATERAL (SELECT k.closed_at " USAPP_ROW_CLOSURE ") kc ON true "
            "WHERE t.couple_id = m.couple_id "
            "AND ((c.task_id IS NOT NULL AND c.completed_at > now() - interval '30 days') "
-           "  OR (c.task_id IS NULL AND t.deadline_at <= now() AND t.deadline_at > now() - interval '30 days')) " +
+           "  OR (c.task_id IS NULL AND kc.closed_at IS NOT NULL AND kc.closed_at > now() - interval '30 days') "
+           "  OR (c.task_id IS NULL AND kc.closed_at IS NULL "
+           "      AND t.deadline_at <= now() AND t.deadline_at > now() - interval '30 days')) " +
            predicate +
-           " ORDER BY COALESCE(c.completed_at, t.deadline_at) DESC, t.id DESC LIMIT " + limitParam +
+           " ORDER BY COALESCE(c.completed_at, kc.closed_at, t.deadline_at) DESC, t.id DESC LIMIT " + limitParam +
            "::integer) x ON true WHERE m.user_id = $1::uuid "
            "ORDER BY x.sort_ha DESC, x.sort_id DESC";
 }
@@ -263,7 +298,7 @@ const std::string &openFirstSql() {
 // 上一页最后一行有截止时间：有截止时间且排在其后，或者没有截止时间（过渡到无截止任务）。
 const std::string &openAfterDatedSql() {
     static const std::string sql = openSql(
-        "AND ((t.deadline_at IS NOT NULL AND (t.deadline_at, t.created_at, t.id) > "
+        "AND ((t.deadline_at IS NOT NULL AND (t.deadline_at, t.created_at, COALESCE(t.recurrence_id, t.id)) > "
         "($2::timestamptz, $3::timestamptz, $4::uuid)) OR t.deadline_at IS NULL)",
         "$5");
     return sql;
@@ -272,7 +307,7 @@ const std::string &openAfterDatedSql() {
 // 上一页最后一行没有截止时间：只在无截止任务内继续。
 const std::string &openAfterUndatedSql() {
     static const std::string sql =
-        openSql("AND t.deadline_at IS NULL AND (t.created_at, t.id) > ($2::timestamptz, $3::uuid)", "$4");
+        openSql("AND t.deadline_at IS NULL AND (t.created_at, COALESCE(t.recurrence_id, t.id)) > ($2::timestamptz, $3::uuid)", "$4");
     return sql;
 }
 
@@ -283,17 +318,19 @@ const std::string &historyFirstSql() {
 
 const std::string &historyAfterSql() {
     static const std::string sql =
-        historySql("AND (COALESCE(c.completed_at, t.deadline_at), t.id) < ($2::timestamptz, $3::uuid)", "$4");
+        historySql("AND (COALESCE(c.completed_at, kc.closed_at, t.deadline_at), t.id) < ($2::timestamptz, $3::uuid)", "$4");
     return sql;
 }
 
-const std::string &getTaskSql() {
-    static const std::string sql = std::string("SELECT m.couple_id::text AS couple_id, ") + kTaskColumns +
+const std::string &getTaskSql(bool dated = false) {
+    static const std::string head = std::string("SELECT m.couple_id::text AS couple_id, ") + kTaskColumns +
                                    " FROM couple_members m "
-                                   "LEFT JOIN tasks t ON t.couple_id = m.couple_id AND t.id = $2::uuid "
-                                   "LEFT JOIN task_completions c ON c.task_id = t.id "
-                                   "WHERE m.user_id = $1::uuid";
-    return sql;
+                                   "LEFT JOIN task_read_model t ON t.couple_id = m.couple_id "
+                                   "AND COALESCE(t.recurrence_id, t.id) = $2::uuid ";
+    static const std::string tail = "LEFT JOIN task_completions c ON c.task_id = t.id WHERE m.user_id = $1::uuid";
+    static const std::string current = head + "AND t.current_period " + tail;
+    static const std::string period = head + "AND t.period_date = $3::date " + tail;
+    return dated ? period : current;
 }
 
 // 发布第 2 步：调用者与同伴，锁住调用者的成员行（FOR SHARE，usapp_api 保留 couple_members 的 UPDATE）。
@@ -306,31 +343,36 @@ const char *kMembershipSql =
 
 // 发布第 3 步：抢占。deadline_at 在 SQL 中按 Asia/Shanghai 计算（与 0007 的一致性检查同一表达式），
 // deadline_in_future 在同一语句里由存储值与 clock_timestamp() 计算。
-// tasks 没有时间相关的 CHECK 或 BEFORE INSERT 触发器，同键重复请求一定走到冲突分类。
+// 根任务没有发布时限触发器；0009 的实例守卫对根行直接返回，不影响同键冲突分类。
 const char *kClaimSql =
     "INSERT INTO tasks (couple_id, creator_id, assignee_id, title, description, reward_flowers, "
     "reward_sunshine, timezone, deadline_local_date, deadline_local_time, deadline_at, "
-    "create_idempotency_key, create_fingerprint) "
+    "create_idempotency_key, create_fingerprint, completion_mode, target_count, schedule_type, start_local_date) "
     "SELECT $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::integer, $7::integer, 'Asia/Shanghai', d.ld, d.lt, "
     "       CASE WHEN d.ld IS NULL THEN NULL "
     "            WHEN d.lt IS NULL THEN (d.ld + 1)::timestamp AT TIME ZONE 'Asia/Shanghai' "
     "            ELSE (d.ld + d.lt) AT TIME ZONE 'Asia/Shanghai' END, "
-    "       $10::text, $11::text "
+    "       $10::text, $11::text, $12::text, $13::integer, $14::text, NULLIF($15::text, '')::date "
     "FROM (SELECT NULLIF($8::text, '')::date AS ld, NULLIF($9::text, '')::time AS lt) d "
     "ON CONFLICT (creator_id, create_idempotency_key) DO NOTHING "
-    "RETURNING id::text AS id, (deadline_at IS NULL OR deadline_at > clock_timestamp()) AS deadline_in_future";
+    "RETURNING id::text AS id, (deadline_at IS NULL OR deadline_at > clock_timestamp()) AS deadline_in_future, "
+    // M5-C: a new custom range may start today or later (Beijing date at the claim).
+    "(start_local_date IS NULL OR start_local_date >= (clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date) AS start_not_past";
 
 const std::string &existingByKeySql() {
-    static const std::string sql = std::string("SELECT t.create_fingerprint, ") + kTaskColumns +
-                                   " FROM tasks t LEFT JOIN task_completions c ON c.task_id = t.id "
-                                   "WHERE t.creator_id = $1::uuid AND t.create_idempotency_key = $2";
+    static const std::string sql = std::string("SELECT original.create_fingerprint, original.id::text AS original_id, "
+                                   "(original.recurrence_id IS NOT NULL) AS internal_period, ") + kTaskColumns +
+                                   " FROM tasks original JOIN task_read_model t ON t.current_period "
+                                   "AND COALESCE(t.recurrence_id, t.id) = COALESCE(original.recurrence_id, original.id) "
+                                   "LEFT JOIN task_completions c ON c.task_id = t.id "
+                                   "WHERE original.creator_id = $1::uuid AND original.create_idempotency_key = $2";
     return sql;
 }
 
 const std::string &createdTaskSql() {
     static const std::string sql = std::string("SELECT ") + kTaskColumns +
-                                   " FROM tasks t LEFT JOIN task_completions c ON c.task_id = t.id "
-                                   "WHERE t.id = $1::uuid";
+                                   " FROM task_read_model t LEFT JOIN task_completions c ON c.task_id = t.id "
+                                   "WHERE t.current_period AND COALESCE(t.recurrence_id, t.id) = $1::uuid";
     return sql;
 }
 
@@ -339,14 +381,38 @@ const char *kAuditSql =
     "INSERT INTO audit_logs (actor_type, actor_id, couple_id, action, target_type, target_id, detail) "
     "VALUES ('user', $1::uuid, $2::uuid, 'task.created', 'task', $3, $4::jsonb)";
 
+#undef USAPP_ROW_CLOSURE
 #undef USAPP_TS
 
 std::string textOrEmpty(const drogon::orm::Row &row, const char *name) {
     return row[name].isNull() ? std::string() : row[name].as<std::string>();
 }
 
+// The M6 JSON columns are built by the database (json_build_object); strict parse.
+bool parseObject(const std::string &text, Json::Value &out) {
+    Json::CharReaderBuilder builder;
+    Json::CharReaderBuilder::strictMode(&builder.settings_);
+    std::string errors;
+    std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    return reader->parse(text.data(), text.data() + text.size(), &out, &errors) && out.isObject();
+}
+
+// Proposal summary in the public shape; terms mirror the Task fields they would replace.
+Json::Value pendingChangeJson(const TaskService::TaskData &task, const Json::Value &p) {
+    Json::Value out(Json::objectValue);
+    out["id"] = p["id"];
+    out["kind"] = p["kind"];
+    out["proposer_id"] = p["proposer_id"];
+    out["created_at"] = p["created_at"];
+    out["terms"] = TaskService::changeTermsJson(p);
+    const auto blocked = TaskService::changeBlockedReason(task, p["kind"].asString());
+    out["blocked_reason"] = blocked.empty() ? Json::Value(Json::nullValue) : Json::Value(blocked);
+    return out;
+}
+
 // 读取一行任务列；列缺失或类型不符时抛异常，由调用方转成内部错误。
-TaskService::TaskData taskFromRow(const drogon::orm::Row &row, bool withHistory = false) {
+// 对外经 TaskService::taskFromRow 暴露（M3-C1，D41），签名与行为不变。
+TaskService::TaskData mapTaskRow(const drogon::orm::Row &row, bool withHistory = false) {
     TaskService::TaskData task;
     task.id = row["id"].as<std::string>();
     task.title = row["title"].as<std::string>();
@@ -355,12 +421,22 @@ TaskService::TaskData taskFromRow(const drogon::orm::Row &row, bool withHistory 
     task.assigneeId = row["assignee_id"].as<std::string>();
     task.rewardFlowers = row["reward_flowers"].as<int>();
     task.rewardSunshine = row["reward_sunshine"].as<int>();
+    task.completionMode = row["completion_mode"].as<std::string>();
+    task.targetCount = row["target_count"].as<int>();
+    task.progressCount = row["progress_count"].as<int>();
+    task.scheduleType = row["schedule_type"].as<std::string>();
+    task.periodDate = textOrEmpty(row, "period_date");
+    task.startDate = textOrEmpty(row, "start_date");
     task.deadlineLocalDate = textOrEmpty(row, "deadline_local_date");
     task.deadlineLocalTime = textOrEmpty(row, "deadline_local_time");
     task.deadlineAt = textOrEmpty(row, "deadline_at");
     task.status = row["status"].as<std::string>();
     task.completedAt = textOrEmpty(row, "completed_at");
     task.createdAt = row["created_at"].as<std::string>();
+    task.closureJson = textOrEmpty(row, "closure_json");
+    task.replaces = textOrEmpty(row, "replaces");
+    task.pendingChangeJson = textOrEmpty(row, "pending_json");
+    task.reactionJson = textOrEmpty(row, "reaction_json");
     if (withHistory) {
         task.historyAt = row["history_at"].as<std::string>();
     }
@@ -395,6 +471,8 @@ struct CreateCtx {
     TaskService::CreateInput input;
     std::string key;
     std::string fingerprint;
+    intent::Choice notifyChoice;
+    Json::Value notification;  // original facts of this publication (P2-3b)
     std::string coupleId;
     std::string partnerId;
     std::string taskId;
@@ -447,6 +525,7 @@ void createStepCommit(const CreateCtxPtr &ctx) {
     ctx->scope->commit([ctx]() {
         TaskService::Status status = makeStatus(TaskService::Outcome::Created);
         status.task = ctx->created;
+        status.notification = ctx->notification;
         complete(ctx, std::move(status));
     });
 }
@@ -461,7 +540,7 @@ void createStepReadBack(const CreateCtxPtr &ctx) {
                 return;
             }
             try {
-                ctx->created = taskFromRow(rows[0]);
+                ctx->created = mapTaskRow(rows[0]);
             } catch (const std::exception &) {
                 failAt(ctx, "read_back", "column_format");
                 return;
@@ -472,11 +551,24 @@ void createStepReadBack(const CreateCtxPtr &ctx) {
         ctx->taskId);
 }
 
+// ---- 第 6 步（P2-3b）：同事务记录通知意图（必要时含偏好序号与站内通知），然后读回 ----
+void createStepIntent(const CreateCtxPtr &ctx) {
+    intent::Source source;
+    source.taskId = ctx->taskId;
+    intent::record(
+        ctx->scope, intent::Operation::TaskPublish, source, ctx->notifyChoice,
+        [ctx](Json::Value facts) {
+            ctx->notification = std::move(facts);
+            createStepReadBack(ctx);
+        },
+        [ctx]() { failAt(ctx, "notification_intent", "write_failed"); });
+}
+
 // ---- 第 6 步：同事务审计 ----
 void createStepAudit(const CreateCtxPtr &ctx) {
     ctx->scope->tx().execSqlAsync(
         kAuditSql,
-        [ctx](const drogon::orm::Result &) { createStepReadBack(ctx); },
+        [ctx](const drogon::orm::Result &) { createStepIntent(ctx); },
         [ctx](const drogon::orm::DrogonDbException &) { failAt(ctx, "audit", "db_error"); },
         ctx->userId,
         ctx->coupleId,
@@ -495,10 +587,17 @@ void createStepClassifyExisting(const CreateCtxPtr &ctx) {
                 return;
             }
             std::string storedFingerprint;
+            std::string originalId;
             TaskService::TaskData stored;
             try {
+                if (rows[0]["internal_period"].as<bool>()) {
+                    rollbackWith(ctx, makeStatus(TaskService::Outcome::KeyReused,
+                                                 "该请求标识已用于另一份不同的发布内容"));
+                    return;
+                }
                 storedFingerprint = rows[0]["create_fingerprint"].as<std::string>();
-                stored = taskFromRow(rows[0]);
+                originalId = rows[0]["original_id"].as<std::string>();
+                stored = mapTaskRow(rows[0]);
             } catch (const std::exception &) {
                 failAt(ctx, "classify_existing", "column_format");
                 return;
@@ -508,10 +607,19 @@ void createStepClassifyExisting(const CreateCtxPtr &ctx) {
                                              "该请求标识已用于另一份不同的发布内容"));
                 return;
             }
-            // 重放：不做截止时间检查，原发布的结果保持有效。
-            TaskService::Status status = makeStatus(TaskService::Outcome::Replayed);
-            status.task = std::move(stored);
-            rollbackWith(ctx, std::move(status));
+            // 重放：不做截止时间检查，原发布的结果保持有效。只读取原始通知意图
+            // （旧发布没有意图记录时为 null），不追加意图、通知或偏好。
+            auto status = std::make_shared<TaskService::Status>(makeStatus(TaskService::Outcome::Replayed));
+            status->task = std::move(stored);
+            intent::Source source;
+            source.taskId = originalId;
+            intent::readOriginal(
+                ctx->scope, intent::Operation::TaskPublish, source,
+                [ctx, status](Json::Value facts) {
+                    status->notification = std::move(facts);
+                    rollbackWith(ctx, std::move(*status));
+                },
+                [ctx]() { failAt(ctx, "classify_existing", "intent_read_failed"); });
         },
         [ctx](const drogon::orm::DrogonDbException &) { failAt(ctx, "classify_existing", "db_error"); },
         ctx->userId,
@@ -529,11 +637,18 @@ void createStepClaim(const CreateCtxPtr &ctx) {
                 return;
             }
             bool inFuture = false;
+            bool startNotPast = true;
             try {
                 ctx->taskId = rows[0]["id"].as<std::string>();
                 inFuture = rows[0]["deadline_in_future"].as<bool>();
+                startNotPast = rows[0]["start_not_past"].as<bool>();
             } catch (const std::exception &) {
                 failAt(ctx, "claim", "column_format");
+                return;
+            }
+            if (!startNotPast) {
+                // Only a new publication is checked; the candidate row is rolled back.
+                rollbackWith(ctx, makeStatus(TaskService::Outcome::Validation, "开始日期不能早于今天（北京时间）"));
                 return;
             }
             if (!inFuture) {
@@ -554,7 +669,11 @@ void createStepClaim(const CreateCtxPtr &ctx) {
         in.deadlineLocalDate,
         in.deadlineLocalTime,
         ctx->key,
-        ctx->fingerprint);
+        ctx->fingerprint,
+        in.completionMode,
+        std::to_string(in.targetCount),
+        in.scheduleType,
+        in.startDate);
 }
 
 // ---- 第 2 步：成员关系与同伴 ----
@@ -598,7 +717,7 @@ TaskService &TaskService::instance() {
     return service;
 }
 
-TaskService::TextError TaskService::normalizeTitle(const std::string &raw, std::string &out) {
+TaskService::TextError TaskService::normalizeTitle(const std::string &raw, std::string &out, size_t maxCodePoints) {
     out.clear();
     if (raw.size() > kTitleMaxRawBytes) {
         return TextError::TooLong;
@@ -623,7 +742,7 @@ TaskService::TextError TaskService::normalizeTitle(const std::string &raw, std::
     if (first == last) {
         return TextError::Empty;
     }
-    if (last - first > kTitleMaxCodePoints) {
+    if (last - first > maxCodePoints) {
         return TextError::TooLong;
     }
     const size_t begin = cps[first].offset;
@@ -632,7 +751,7 @@ TaskService::TextError TaskService::normalizeTitle(const std::string &raw, std::
     return TextError::None;
 }
 
-TaskService::TextError TaskService::normalizeDescription(const std::string &raw, std::string &out) {
+TaskService::TextError TaskService::normalizeDescription(const std::string &raw, std::string &out, size_t maxCodePoints) {
     out.clear();
     if (raw.size() > kDescriptionMaxRawBytes) {
         return TextError::TooLong;
@@ -668,7 +787,7 @@ TaskService::TextError TaskService::normalizeDescription(const std::string &raw,
     while (last > first && trimmable(kept[last - 1].value)) {
         --last;
     }
-    if (last - first > kDescriptionMaxCodePoints) {
+    if (last - first > maxCodePoints) {
         return TextError::TooLong;
     }
     for (size_t i = first; i < last; ++i) {
@@ -702,10 +821,72 @@ bool TaskService::parseCreateRequest(const Json::Value &body, CreateInput &out, 
         return false;
     }
     static const std::set<std::string> allowed = {"title", "description", "reward_flowers", "reward_sunshine",
-                                                  "deadline"};
+                                                  "deadline", "completion_mode", "target_count", "schedule_type",
+                                                  "start_date", "end_date"};
     for (const auto &name : body.getMemberNames()) {
         if (allowed.find(name) == allowed.end()) {
             message = "请求体包含不支持的字段";
+            return false;
+        }
+    }
+
+    if (body.isMember("completion_mode")) {
+        if (!body["completion_mode"].isString() ||
+            (body["completion_mode"].asString() != "single" && body["completion_mode"].asString() != "count")) {
+            message = "完成方式必须是 single 或 count";
+            return false;
+        }
+        out.completionMode = body["completion_mode"].asString();
+    }
+    if (body.isMember("target_count")) {
+        if (!isStrictInteger(body["target_count"]) || body["target_count"].asInt() < 1) {
+            message = "目标次数必须是 1 到 2147483647 的整数";
+            return false;
+        }
+        out.targetCount = body["target_count"].asInt();
+    } else if (out.completionMode == "count") {
+        message = "计数任务需要目标次数";
+        return false;
+    }
+    if (out.completionMode == "single" && out.targetCount != 1) {
+        message = "单次任务的目标次数必须为 1";
+        return false;
+    }
+    if (body.isMember("schedule_type")) {
+        const std::string schedule = body["schedule_type"].isString() ? body["schedule_type"].asString() : "";
+        if (schedule != "one_off" && schedule != "daily" && schedule != "weekly" && schedule != "custom") {
+            message = "重复方式必须是 one_off、daily、weekly 或 custom";
+            return false;
+        }
+        out.scheduleType = schedule;
+    }
+    const bool hasDeadline = body.isMember("deadline") && !body["deadline"].isNull();
+    if ((out.scheduleType == "daily" || out.scheduleType == "weekly") &&
+        (out.completionMode != "count" || hasDeadline)) {
+        message = out.scheduleType == "daily" ? "每天重复仅支持计数，按北京时间当天结束时到期"
+                                              : "每周重复仅支持计数，按北京时间每周日结束时到期";
+        return false;
+    }
+    if (out.scheduleType != "custom" && (body.isMember("start_date") || body.isMember("end_date"))) {
+        message = "只有指定日期范围的任务可以设置开始和结束日期";
+        return false;
+    }
+    if (out.scheduleType == "custom") {
+        // M5-C: one bounded range, inclusive start/end dates in Asia/Shanghai.
+        if (out.completionMode != "count" || hasDeadline) {
+            message = "指定日期范围仅支持计数，按结束日期当天结束时到期";
+            return false;
+        }
+        if (!body.isMember("start_date") || !body["start_date"].isString() ||
+            !validLocalDate(body["start_date"].asString()) || !body.isMember("end_date") ||
+            !body["end_date"].isString() || !validLocalDate(body["end_date"].asString())) {
+            message = "开始和结束日期格式应为 YYYY-MM-DD";
+            return false;
+        }
+        out.startDate = body["start_date"].asString();
+        out.deadlineLocalDate = body["end_date"].asString();
+        if (out.deadlineLocalDate < out.startDate) {  // same-width ISO dates compare lexically
+            message = "结束日期不能早于开始日期";
             return false;
         }
     }
@@ -805,11 +986,18 @@ std::string TaskService::canonicalCreateString(const CreateInput &input) {
     auto field = [](const char *name, const std::string &value) {
         return std::string(name) + "=" + std::to_string(value.size()) + ":" + value + ";";
     };
-    return std::string("create-task:v1:") + field("title", input.title) +
+    const std::string base = std::string("create-task:v1:") + field("title", input.title) +
            field("description", input.description) + field("reward_flowers", std::to_string(input.rewardFlowers)) +
            field("reward_sunshine", std::to_string(input.rewardSunshine)) +
            field("deadline_local_date", input.deadlineLocalDate) +
            field("deadline_local_time", input.deadlineLocalTime);
+    // Preserve fingerprints for every existing single task and old-client replay.
+    const auto normalized = input.completionMode == "single" && input.targetCount == 1 ? base :
+        base + field("completion_mode", input.completionMode) + field("target_count", std::to_string(input.targetCount));
+    if (input.scheduleType == "one_off") return normalized;
+    const auto scheduled = normalized + field("schedule_type", input.scheduleType);
+    // The custom end date is already deadline_local_date; only the start is added.
+    return input.scheduleType == "custom" ? scheduled + field("start_date", input.startDate) : scheduled;
 }
 
 std::string TaskService::createFingerprint(const CreateInput &input) {
@@ -969,6 +1157,48 @@ const char *TaskService::getSql() {
     return getTaskSql().c_str();
 }
 
+TaskService::TaskData TaskService::taskFromRow(const drogon::orm::Row &row, bool withHistory) {
+    return mapTaskRow(row, withHistory);
+}
+
+const char *TaskService::taskColumnsSql() {
+    return kTaskColumns;
+}
+
+Json::Value TaskService::changeTermsJson(const Json::Value &p) {
+    if (p["kind"].asString() != "edit") return Json::Value(Json::nullValue);
+    Json::Value terms(Json::objectValue);
+    terms["title"] = p["title"];
+    terms["description"] = p["description"];
+    terms["reward_flowers"] = p["reward_flowers"];
+    terms["reward_sunshine"] = p["reward_sunshine"];
+    terms["completion_mode"] = p["completion_mode"];
+    terms["target_count"] = p["target_count"];
+    if (p["deadline_local_date"].isNull()) {
+        terms["deadline"] = Json::Value(Json::nullValue);
+    } else {
+        terms["deadline"]["local_date"] = p["deadline_local_date"];
+        terms["deadline"]["local_time"] = p["deadline_local_time"];
+    }
+    if (!p["start_date"].isNull()) terms["start_date"] = p["start_date"];
+    return terms;
+}
+
+std::string TaskService::changeBlockedReason(const TaskData &task, const std::string &kind) {
+    if (task.status == "cancelled" || task.status == "superseded") return "closed";
+    const bool recurring = task.scheduleType == "daily" || task.scheduleType == "weekly";
+    if (kind == "edit") {
+        if (task.status == "completed") return "completed";
+        if (task.progressCount > 0) return "progress";
+        if (task.status == "expired") return "expired";
+        return "";
+    }
+    // Cancelling a template stays possible after its current period completed.
+    if (!recurring && task.status == "completed") return "completed";
+    if (!recurring && task.status == "expired") return "expired";
+    return "";
+}
+
 Json::Value TaskService::taskJson(const TaskData &task) {
     Json::Value out(Json::objectValue);
     out["id"] = task.id;
@@ -976,8 +1206,27 @@ Json::Value TaskService::taskJson(const TaskData &task) {
     out["description"] = task.description;
     out["creator_id"] = task.creatorId;
     out["assignee_id"] = task.assigneeId;
+    Json::Value reaction;
+    out["reaction"] = !task.reactionJson.empty() && parseObject(task.reactionJson, reaction)
+                      ? reaction : Json::Value(Json::nullValue);
     out["reward_flowers"] = task.rewardFlowers;
     out["reward_sunshine"] = task.rewardSunshine;
+    // Keep the original single-task response shape (including old completion
+    // replay bodies). Counting metadata is additive only for counting tasks.
+    if (task.completionMode == "count") {
+        out["completion_mode"] = task.completionMode;
+        out["target_count"] = task.targetCount;
+        out["progress_count"] = task.progressCount;
+    }
+    if (task.scheduleType != "one_off") {
+        out["schedule_type"] = task.scheduleType;
+    }
+    if (task.scheduleType == "daily" || task.scheduleType == "weekly") {
+        out["period_date"] = task.periodDate;
+    }
+    if (task.scheduleType == "custom") {
+        out["start_date"] = task.startDate;
+    }
     if (task.deadlineLocalDate.empty()) {
         out["deadline"] = Json::Value(Json::nullValue);
     } else {
@@ -991,6 +1240,20 @@ Json::Value TaskService::taskJson(const TaskData &task) {
     out["status"] = task.status;
     out["completed_at"] = task.completedAt.empty() ? Json::Value(Json::nullValue) : Json::Value(task.completedAt);
     out["created_at"] = task.createdAt;
+    // M6 fields are additive and only present when they apply, so earlier bodies keep their shape.
+    Json::Value closure;
+    if (!task.closureJson.empty() && parseObject(task.closureJson, closure)) {
+        Json::Value c(Json::objectValue);
+        c["reason"] = closure["reason"];
+        c["closed_at"] = closure["closed_at"];
+        c["replaced_by"] = closure["replaced_by"];
+        out["closure"] = c;
+    }
+    if (!task.replaces.empty()) out["replaces"] = task.replaces;
+    Json::Value pending;
+    if (!task.pendingChangeJson.empty() && parseObject(task.pendingChangeJson, pending)) {
+        out["pending_change"] = pendingChangeJson(task, pending);
+    }
     return out;
 }
 
@@ -1049,7 +1312,8 @@ int TaskService::httpStatusFor(Outcome outcome) {
 void TaskService::createTask(const std::string &userId,
                              const CreateInput &input,
                              const std::string &idempotencyKey,
-                             StatusCallback cb) {
+                             StatusCallback cb,
+                             intent::Choice notifyChoice) {
     if (userId.empty() || !validIdempotencyKey(idempotencyKey)) {
         cb(makeStatus(Outcome::Validation, "请求标识不合法", failureDetail("task_create", "input", "invalid_key")));
         return;
@@ -1063,7 +1327,9 @@ void TaskService::createTask(const std::string &userId,
     ctx->userId = userId;
     ctx->input = input;
     ctx->key = idempotencyKey;
-    ctx->fingerprint = createFingerprint(input);
+    // Omitted/false: the literal legacy fingerprint; true: the domain-separated extension.
+    ctx->fingerprint = intent::fingerprint(createFingerprint(input), notifyChoice);
+    ctx->notifyChoice = notifyChoice;
     ctx->done = std::move(cb);
 
     // onReady 只在 begin() 内同步调用、不被保存，可以强捕获；
@@ -1121,6 +1387,7 @@ void TaskService::listTasks(const std::string &userId,
     const bool history = view == View::History;
     auto onRows = [done, view, history, limit](const drogon::orm::Result &rows) {
         ListResult result;
+        std::string historyLastId;
         if (rows.size() == 0u) {
             result.outcome = Outcome::SpaceNotFound;
             result.message = "尚未加入空间";
@@ -1132,7 +1399,12 @@ void TaskService::listTasks(const std::string &userId,
                 if (row["id"].isNull()) {
                     continue;  // 有成员关系、没有任务的占位行
                 }
-                result.tasks.push_back(taskFromRow(row, history));
+                result.tasks.push_back(mapTaskRow(row, history));
+                if (history && result.tasks.size() == static_cast<size_t>(limit)) {
+                    // The stored instance id breaks equal-time ties across periods;
+                    // the public task id remains the recurring template id.
+                    historyLastId = row["sort_id"].as<std::string>();
+                }
             }
         } catch (const std::exception &) {
             result = ListResult{};
@@ -1146,7 +1418,7 @@ void TaskService::listTasks(const std::string &userId,
             const TaskData &last = result.tasks.back();
             Cursor next;
             next.view = view;
-            next.id = last.id;
+            next.id = history ? historyLastId : last.id;
             if (history) {
                 next.historyAt = last.historyAt;
             } else {
@@ -1189,7 +1461,31 @@ void TaskService::listTasks(const std::string &userId,
     }
 }
 
-void TaskService::getTask(const std::string &userId, const std::string &taskId, StatusCallback cb) {
+bool TaskService::validPeriodDate(const std::string &date) { return validLocalDate(date); }
+
+bool TaskService::isWeekStart(const std::string &date) {
+    if (!validLocalDate(date)) {
+        return false;
+    }
+    // Days since 1970-01-01 (a Thursday), proleptic Gregorian; years are 1970-9998.
+    int year = number(date, 0, 4);
+    const int month = number(date, 5, 2);
+    const int day = number(date, 8, 2);
+    year -= month <= 2 ? 1 : 0;
+    const long era = year / 400;
+    const long yoe = year - era * 400;
+    const long doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const long days = era * 146097 + doe - 719468;
+    return days % 7 == 4;  // 1970-01-05 (days = 4) was a Monday
+}
+
+void TaskService::getTask(const std::string &userId, const std::string &taskId, StatusCallback cb,
+                          const std::string &periodDate) {
+    if (!periodDate.empty() && !validPeriodDate(periodDate)) {
+        cb(makeStatus(Outcome::Validation, "周期日期不合法"));
+        return;
+    }
     if (userId.empty()) {
         cb(makeStatus(Outcome::Error, "", failureDetail("task_get", "input", "missing_user")));
         return;
@@ -1199,9 +1495,7 @@ void TaskService::getTask(const std::string &userId, const std::string &taskId, 
         return;
     }
     auto done = std::make_shared<StatusCallback>(std::move(cb));
-    db::Pool::instance().client()->execSqlAsync(
-        getSql(),
-        [done](const drogon::orm::Result &rows) {
+    auto onRows = [done](const drogon::orm::Result &rows) {
             if (rows.size() == 0u) {
                 (*done)(makeStatus(Outcome::SpaceNotFound, "尚未加入空间"));
                 return;
@@ -1216,18 +1510,22 @@ void TaskService::getTask(const std::string &userId, const std::string &taskId, 
             }
             Status status = makeStatus(Outcome::Ok);
             try {
-                status.task = taskFromRow(rows[0]);
+                status.task = mapTaskRow(rows[0]);
             } catch (const std::exception &) {
                 (*done)(makeStatus(Outcome::Error, "", failureDetail("task_get", "query", "column_format")));
                 return;
             }
             (*done)(std::move(status));
-        },
-        [done](const drogon::orm::DrogonDbException &) {
+        };
+    auto onError = [done](const drogon::orm::DrogonDbException &) {
             (*done)(makeStatus(Outcome::Error, "", failureDetail("task_get", "query", "db_error")));
-        },
-        userId,
-        taskId);
+        };
+    if (periodDate.empty()) {
+        db::Pool::instance().client()->execSqlAsync(getTaskSql(), std::move(onRows), std::move(onError), userId, taskId);
+    } else {
+        db::Pool::instance().client()->execSqlAsync(getTaskSql(true), std::move(onRows), std::move(onError),
+                                                  userId, taskId, periodDate);
+    }
 }
 
 }  // namespace usapp

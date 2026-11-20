@@ -20,6 +20,14 @@
 // =====================================================================
 #pragma once
 
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
+#if defined(__GLIBC__) || defined(__linux__)
+#include <execinfo.h>
+#endif
+
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -106,6 +114,43 @@ inline int finish() {
 }
 
 // 门控跳过出口：输出明确跳过原因，并返回独立退出码（默认 77，对应 CTest 的 SKIP_RETURN_CODE）。
+// Termination diagnostics for an abnormal exit: stdout line-buffered, so a [ RUN ] line and earlier
+// output survive an abort instead of dying in the stdio buffer; a terminate handler naming the
+// exception; a backtrace for SIGABRT / SIGSEGV. Then the default action, so the exit status stays
+// honest. Test binaries only.
+inline void crashBacktrace(const char *what) {
+    std::fprintf(stderr, "\n[CRASH] %s\n", what);
+    std::fflush(nullptr);
+#if defined(__GLIBC__)
+    void *frames[64];
+    backtrace_symbols_fd(frames, backtrace(frames, 64), 2);
+#endif
+}
+inline void crashSignal(int signo) {
+    crashBacktrace(signo == SIGABRT ? "signal SIGABRT" : "signal SIGSEGV");
+    std::signal(signo, SIG_DFL);
+    std::raise(signo);
+}
+inline void installCrashDiagnostics() {
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    std::set_terminate([]() {
+        std::fprintf(stderr, "\n[CRASH] std::terminate");
+        if (auto current = std::current_exception()) {
+            try {
+                std::rethrow_exception(current);
+            } catch (const std::exception &e) {
+                std::fprintf(stderr, ": %s", e.what());
+            } catch (...) {
+                std::fprintf(stderr, ": non-standard exception");
+            }
+        }
+        std::fprintf(stderr, "\n");
+        std::abort();
+    });
+    std::signal(SIGABRT, crashSignal);
+    std::signal(SIGSEGV, crashSignal);
+}
+
 inline int skip(const std::string &reason, int skipCode = 77) {
     std::printf("\n[SKIP] %s (exit code %d)\n", reason.c_str(), skipCode);
     std::printf("RESULT: SKIP\n");

@@ -1,7 +1,7 @@
 // =====================================================================
 // services/api/src/db/TaskPrivilegePolicy.h
 //
-// 任务表（tasks、task_completions）的有效权限矩阵检查（阶段 1 M3-A；
+// 任务表（tasks、task_completions、task_progress_events）及只读 task_read_model 的有效权限检查（M5）；
 // docs/phase1-m3-design.md 第 3.1 节，D26）。
 //
 // 与钱包检查（WalletPrivilegePolicy）相同的身份要求：current_user 必须是 usapp_api、
@@ -10,6 +10,7 @@
 //   * 表级：current_user 只有 SELECT、INSERT；UPDATE、DELETE、TRUNCATE、REFERENCES、
 //     TRIGGER、MAINTAIN 一律为否；usapp_push 与 PUBLIC 全部为否。
 //   * 任意列：current_user 的 SELECT / INSERT 为是，UPDATE / REFERENCES 为否；其他主体全部为否。
+//   * task_read_model 仅允许 current_user SELECT；表级及任意列 INSERT 也必须为否。
 //   * 列级 UPDATE：所有主体、所有列一律为否（任务表从不加行锁，因此没有锁列）。
 //
 // 复用 WalletPrivilegeRow / WalletPrivilegeCheck / WalletPrivilegeReport 的数据形状与

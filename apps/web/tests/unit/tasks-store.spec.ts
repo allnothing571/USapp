@@ -112,15 +112,67 @@ describe('publish idempotency key lifetime', () => {
     expect(k1).not.toBe(k2)
   })
 
-  it('changing the content after an unconfirmed result uses a new key', async () => {
+  it('changing the content cannot overwrite an unconfirmed publication', async () => {
     const store = useTasksStore()
     vi.mocked(createTask)
       .mockRejectedValueOnce(new ApiError('NETWORK_ERROR', 'offline', 0))
       .mockResolvedValueOnce({ task: task('t1') })
     await store.publish(PAYLOAD)
-    await store.publish({ ...PAYLOAD, reward_flowers: 3 })
-    const [k1, k2] = keysSent()
-    expect(k1).not.toBe(k2)
+    expect((await store.publish({ ...PAYLOAD, reward_flowers: 3 })).outcome).toBe('unknown')
+    expect(keysSent()).toHaveLength(1)
+    expect(store.pendingPublishBody).toBe(JSON.stringify(PAYLOAD))
+    expect((await store.retryPublish()).outcome).toBe('published')
+    expect(keysSent()[1]).toBe(keysSent()[0])
+  })
+
+  it.each([
+    new ApiError('UNAUTHENTICATED', 'session expired', 401),
+    new ApiError('INTERNAL_ERROR', 'gateway response', 403),
+    new OfflineMutationBlockedError(),
+  ])('keeps the original publication after a failed retry: %s', async (failure) => {
+    const store = useTasksStore()
+    vi.mocked(createTask).mockRejectedValueOnce(new ApiError('RESULT_UNKNOWN', 'unknown', 503))
+      .mockRejectedValueOnce(failure).mockResolvedValueOnce({ task: task('t1') })
+    expect((await store.publish(PAYLOAD)).outcome).toBe('unknown')
+    expect((await store.retryPublish()).outcome).toBe('unknown')
+    expect(store.pendingPublishBody).toBe(JSON.stringify(PAYLOAD))
+    expect(store.publishErrorText).toContain('仍未确认')
+    expect((await store.retryPublish()).outcome).toBe('published')
+    expect(keysSent()).toEqual([keysSent()[0], keysSent()[0], keysSent()[0]])
+  })
+
+  it.each([undefined, { task: null }, { task: {} }])('keeps the key after an unusable success: %s', async (bad) => {
+    const store = useTasksStore()
+    vi.mocked(createTask).mockResolvedValueOnce(bad as unknown as TaskResponse)
+      .mockResolvedValueOnce({ task: task('t1') })
+    expect((await store.publish(PAYLOAD)).outcome).toBe('unknown')
+    expect(store.hasPendingPublish()).toBe(true)
+    expect((await store.retryPublish()).outcome).toBe('published')
+    expect(keysSent()[1]).toBe(keysSent()[0])
+  })
+
+  it('keeps an earlier unknown publication if CSRF preparation fails', async () => {
+    const store = useTasksStore()
+    vi.mocked(createTask).mockRejectedValueOnce(new ApiError('RESULT_UNKNOWN', 'unknown', 503))
+    await store.publish(PAYLOAD)
+    const spy = vi.spyOn(useSessionStore(), 'ensureCsrfToken').mockRejectedValueOnce(new Error('token unavailable'))
+    expect((await store.retryPublish()).outcome).toBe('unknown')
+    expect(store.publishErrorText).toContain('仍未确认')
+    expect(store.pendingPublishBody).toBe(JSON.stringify(PAYLOAD))
+    expect(createTask).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('retries an immutable snapshot even if the caller mutates its original payload', async () => {
+    const store = useTasksStore()
+    const original = { ...PAYLOAD }
+    vi.mocked(createTask).mockRejectedValueOnce(new ApiError('RESULT_UNKNOWN', 'unknown', 503))
+      .mockResolvedValueOnce({ task: task('t1') })
+    await store.publish(original)
+    original.title = 'changed elsewhere'
+    expect((await store.retryPublish()).outcome).toBe('published')
+    expect(vi.mocked(createTask).mock.calls[1][0]).toEqual(PAYLOAD)
+    expect(keysSent()[1]).toBe(keysSent()[0])
   })
 
   it('an offline-blocked publish is not sent, keeps its key and is never replayed automatically', async () => {

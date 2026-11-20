@@ -49,6 +49,30 @@ void TxScope::begin(std::function<void(std::shared_ptr<TxScope>)> onReady, Error
     onReady(scope);
 }
 
+void TxScope::beginAsync(std::function<void(std::shared_ptr<TxScope>)> onReady, ErrorHandler onError) {
+    ClientPtr client;
+    try { client = Pool::instance().client(); }
+    catch (const std::exception &e) { onError(std::string("创建事务失败: ") + e.what()); return; }
+    beginOnClientAsync(std::move(client), std::move(onReady), std::move(onError));
+}
+
+void TxScope::beginOnClientAsync(ClientPtr client, std::function<void(std::shared_ptr<TxScope>)> onReady, ErrorHandler onError) {
+    try {
+        if (!client) { onError("Recovery database client unavailable"); return; }
+        client->newTransactionAsync(
+            [onReady = std::move(onReady), onError](const TxPtr &tx) {
+                if (!tx) {
+                    onError("创建事务失败: 等待连接超时");
+                    return;
+                }
+                std::shared_ptr<TxScope> scope(new TxScope(tx, onError));
+                onReady(scope);
+            });
+    } catch (const std::exception &e) {
+        onError(std::string("创建事务失败: ") + e.what());
+    }
+}
+
 // ---------------------------------------------------------------------
 // 提交：Drogon v1.9.11 没有 Transaction::commit()，唯一路径是
 //   setCommitCallback(收到 true 表示提交成功) + 释放事务引用。

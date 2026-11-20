@@ -18,6 +18,25 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "AnniversaryUnitTests.h"
+#include "MemoryUnitTests.h"
+#include "DeletionJournalUnitTests.h"
+#include "DeletionRecoveryUnitTests.h"
+#include "DeletionStartupUnitTests.h"
+#include "DeletionJournalBridgeUnitTests.h"
+#include "RecoverySourceBridgeUnitTests.h"
+#include "AlbumUnitTests.h"
+#include "NotificationIntentUnitTests.h"
+#include "ProductUnitTests.h"
+#include "PushUnitTests.h"
+#include "PushDispatchUnitTests.h"
+#include "PushWorkerUnitTests.h"
+#include "ReminderUnitTests.h"
+#include "RedemptionUnitTests.h"
+#include "MessageUnitTests.h"
+#include "TaskReactionUnitTests.h"
+#include "TaskChangeUnitTests.h"
+#include "TaskCompletionUnitTests.h"
 #include "TaskServiceUnitTests.h"
 #include "TestDatabaseGuard.h"
 #include "TestSupport.h"
@@ -474,10 +493,58 @@ int main() {
         // 与钱包不同：任务表上任何列都没有 UPDATE（包括任意列汇总）。
         CHECK(T::expectedFor(row("any_column_privilege", "current", "tasks", "", "UPDATE", {})) == false);
         CHECK(T::expectedFor(row("any_column_privilege", "current", "tasks", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("table_privilege", "current", "task_read_model", "", "INSERT", {})) == false);
+        CHECK(T::expectedFor(row("table_privilege", "current", "task_read_model", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("identity", "usapp_memory_eraser", "", "", "no_violations", {})) == true);
+        CHECK(T::expectedFor(row("identity", "timestamp_guards", "", "", "no_column_defaults", {})) == true);
+        CHECK(T::expectedFor(row("identity", "phase3_notifications", "", "", "sources_present", {})) == true);
+        CHECK_FALSE(T::expectedFor(row("identity", "usapp_memory_eraser", "", "", "violation_superuser", {})).has_value());
+        CHECK(T::expectedFor(row("table_privilege", "current", "memory_purges", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("table_privilege", "current", "memory_purges", "", "INSERT", {})) == false);
+        // Phase 4 B1: the avatar asset registry is read-only to the application; the catalog tables take INSERT.
+        CHECK(T::expectedFor(row("table_privilege", "current", "avatar_assets", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("table_privilege", "current", "avatar_assets", "", "INSERT", {})) == false);
+        CHECK(T::expectedFor(row("any_column_privilege", "current", "avatar_assets", "", "INSERT", {})) == false);
+        CHECK(T::expectedFor(row("table_privilege", "current", "achievement_activation", "", "SELECT", {})) == true);
+        CHECK(T::expectedFor(row("table_privilege", "current", "achievement_activation", "", "INSERT", {})) == false);
+        CHECK(T::expectedFor(row("any_column_privilege", "current", "achievement_activation", "", "INSERT", {})) == false);
+        for (const std::string table : {"avatar_items", "avatar_item_revisions", "avatar_starter_configs"}) {
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "INSERT", {})) == true);
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "UPDATE", {})) == false);
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "DELETE", {})) == false);
+            CHECK(T::expectedFor(row("table_privilege", "usapp_push", table, "", "SELECT", {})) == false);
+        }
+        CHECK(T::expectedFor(row("table_privilege", "current", "memory_purges", "", "UPDATE", {})) == false);
+        CHECK(T::expectedFor(row("any_column_privilege", "current", "memory_purges", "", "INSERT", {})) == false);
         CHECK(T::expectedFor(row("column_privilege", "current", "tasks", "id", "UPDATE", {})) == false);
         CHECK(T::expectedFor(row("column_privilege", "current", "task_completions", "completed_at", "UPDATE", {})) ==
               false);
         CHECK(T::expectedFor(row("identity", "current", "usapp_api", "", "is_app_role", {})) == true);
+        // M6: change proposals, decisions and closures are append-only (SELECT/INSERT only).
+        for (const std::string table : {"task_change_proposals", "task_change_decisions", "task_closures",
+                                        "reward_products", "reward_product_revisions",
+                                        "reward_redemptions", "reward_redemption_fulfillments", "reward_redemption_events",
+                                        "messages", "message_replies", "anniversaries", "anniversary_revisions",
+                                        "anniversary_edit_proposals", "anniversary_edit_decisions",
+                                        "anniversary_home_pins", "notifications", "notification_reads",
+                                        "notification_intents", "task_reactions", "push_subscriptions",
+                                        "push_subscription_revocations", "push_registration_commands",
+                                        "push_dispatch_control", "push_deliveries", "push_attempts",
+                                        "push_attempt_observations", "push_attempt_expiries",
+                                        "push_delivery_outcomes", "reminder_rules", "reminder_occurrences",
+                                        "media_objects", "media_promotion_attempts", "media_upload_outcomes",
+                                        "media_cleanup_plans", "media_cleanup_passes", "media_bindings",
+                                        "media_late_objects", "memories", "memory_texts", "memory_revisions",
+                                        "memory_revision_photos", "memory_edit_proposals", "memory_proposal_photos",
+                                        "memory_edit_decisions", "albums", "album_texts", "album_revisions",
+                                        "album_photo_batches", "album_items", "album_item_removals", "album_cover_events",
+                                        "album_edit_proposals", "album_edit_decisions", "shared_plans", "shared_plan_events", "shared_plan_memory_links",
+                                        "media_deletions", "media_deletion_reversals", "memory_deletions", "memory_deletion_reversals",
+                                        "memory_delete_requests", "memory_delete_decisions", "memory_deletion_photo_cycles"}) {
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "INSERT", {})) == true);
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "UPDATE", {})) == false);
+            CHECK(T::expectedFor(row("table_privilege", "current", table, "", "DELETE", {})) == false);
+        }
         // 钱包表的行不属于任务矩阵。
         CHECK_FALSE(T::expectedFor(row("table_privilege", "current", "wallet_accounts", "", "SELECT", {})).has_value());
 
@@ -490,9 +557,86 @@ int main() {
         add(row("identity", "current", "", "", "rolsuper", {}));
         add(row("identity", "current", "", "", "has_role_memberships", {}));
         add(row("identity", "usapp_push", "", "", "role_exists", {}));
+        add(row("identity", "usapp_memory_eraser", "", "", "no_violations", {}));
+        add(row("identity", "timestamp_guards", "", "", "no_column_defaults", {}));
+        add(row("identity", "phase3_notifications", "", "", "sources_present", {}));
         const std::vector<std::pair<std::string, std::vector<std::string>>> columns = {
             {"tasks", {"id", "couple_id", "title", "deadline_at"}},
             {"task_completions", {"task_id", "operation_id", "completed_at"}},
+            {"task_progress_events", {"task_id", "id", "progress_count"}},
+            {"task_read_model", {"id", "period_date", "current_period"}},
+            {"task_change_proposals", {"id", "task_id", "kind"}},
+            {"task_change_decisions", {"proposal_id", "outcome"}},
+            {"task_closures", {"task_id", "closed_at"}},
+            {"reward_products", {"id", "owner_id"}},
+            {"reward_product_revisions", {"product_id", "price_flowers"}},
+            {"reward_redemptions", {"product_id", "operation_id"}},
+            {"reward_redemption_fulfillments", {"redemption_id", "fulfilled_by"}},
+            {"reward_redemption_events", {"redemption_id", "actor_id"}},
+            {"reward_redemption_state", {"id", "status"}},
+            {"messages", {"id", "body"}},
+            {"message_replies", {"message_id", "body"}},
+            {"anniversaries", {"id", "creator_id"}},
+            {"anniversary_revisions", {"anniversary_id", "event_date"}},
+            {"anniversary_edit_proposals", {"id", "base_version"}},
+            {"anniversary_edit_decisions", {"proposal_id", "outcome"}},
+            {"anniversary_home_pins", {"user_id", "seq"}},
+            {"notifications", {"id", "recipient_id"}},
+            {"notification_reads", {"notification_id", "recipient_id"}},
+            {"task_reactions", {"id", "completion_task_id"}},
+            {"notification_intents", {"id", "preference_seq"}},
+            {"push_subscriptions", {"id", "endpoint_hash"}},
+            {"push_subscription_revocations", {"subscription_id", "reason"}},
+            {"push_registration_commands", {"user_id", "idempotency_key"}},
+            {"push_dispatch_control", {"revision", "kind"}},
+            {"push_deliveries", {"notification_id", "generation_id"}},
+            {"push_attempts", {"notification_id", "attempt_no"}},
+            {"push_attempt_observations", {"notification_id", "outcome"}},
+            {"push_attempt_expiries", {"notification_id", "expired_at"}},
+            {"push_delivery_outcomes", {"notification_id", "final_state"}},
+            {"reminder_rules", {"id", "owner_id"}},
+            {"reminder_occurrences", {"id", "owner_id"}},
+            {"media_objects", {"id", "staging_key"}},
+            {"media_promotion_attempts", {"media_id", "final_key"}},
+            {"media_upload_outcomes", {"media_id", "outcome"}},
+            {"media_cleanup_plans", {"media_id", "scope"}},
+            {"media_cleanup_passes", {"media_id", "kind"}},
+            {"media_bindings", {"media_id", "target_id"}},
+            {"media_late_objects", {"object_key", "disposition"}},
+            {"memories", {"id", "creator_id"}},
+            {"memory_texts", {"id", "title"}},
+            {"memory_revisions", {"memory_id", "version"}},
+            {"memory_revision_photos", {"memory_id", "media_id"}},
+            {"memory_edit_proposals", {"id", "base_version"}},
+            {"memory_proposal_photos", {"proposal_id", "media_id"}},
+            {"memory_edit_decisions", {"proposal_id", "outcome"}},
+            {"albums", {"id", "creator_id"}},
+            {"album_texts", {"id", "name"}},
+            {"album_revisions", {"album_id", "version"}},
+            {"album_photo_batches", {"id", "album_id"}},
+            {"album_items", {"album_id", "media_id"}},
+            {"album_item_removals", {"album_id", "media_id"}},
+            {"album_cover_events", {"album_id", "media_id"}},
+            {"album_edit_proposals", {"id", "base_version"}},
+            {"album_edit_decisions", {"proposal_id", "outcome"}},
+            {"shared_plans", {"id"}}, {"shared_plan_events", {"id"}}, {"shared_plan_memory_links", {"plan_id"}},
+            {"media_deletions", {"media_id", "purge_after"}}, {"media_deletion_reversals", {"media_id", "deletion_id"}},
+            {"memory_deletions", {"memory_id", "purge_after"}}, {"memory_deletion_reversals", {"memory_id", "deletion_id"}},
+            {"memory_delete_requests", {"memory_id", "requester_id"}}, {"memory_delete_decisions", {"memory_id", "deletion_id"}},
+            {"memory_deletion_photo_cycles", {"memory_id", "media_deletion_id"}},
+            {"memory_purges", {"memory_id", "deletion_id"}},
+            {"deletion_recovery_attempts", {"generation", "database_id"}},
+            {"deletion_recovery_manifests", {"generation", "payload"}},
+            {"deletion_recovery_quarantine", {"generation", "target_id"}},
+            {"deletion_recovery_verifications", {"generation", "head_hash"}},
+            {"avatar_assets", {"asset_key", "layers"}}, {"avatar_items", {"id", "family"}},
+            {"avatar_item_revisions", {"item_id", "price_sunshine"}}, {"avatar_starter_configs", {"version", "hair_item_id"}},
+            {"avatar_purchases", {"id", "price_sunshine"}},
+            {"avatar_loadout_events", {"id", "hair_item_id"}},
+            {"achievement_activation", {"singleton", "enabled_at"}},
+            {"admin_wallet_adjustments", {"id", "admin_id"}},
+            {"admin_redemption_cancellations", {"id", "admin_id"}},
+            {"account_login_events", {"id", "user_id"}},
         };
         for (const auto &table : T::taskTables()) {
             add(row("table", "current", table, "", "exists", {}));
@@ -543,15 +687,24 @@ int main() {
         auto withNull = rows;
         withNull[1].actual.reset();
         CHECK_FALSE(T::evaluate(withNull).ok());
-        auto missingColumn = rows;
-        missingColumn.erase(std::remove_if(missingColumn.begin(), missingColumn.end(),
-                                           [](const WalletPrivilegeRow &r) {
-                                               return r.kind == "column_privilege" && r.column == "task_id";
-                                           }),
-                            missingColumn.end());
-        const auto missingReport = T::evaluate(missingColumn);
-        CHECK_FALSE(missingReport.ok());
-        CHECK_EQ(missingReport.missing.size(), 3u);  // 三个主体各缺一项
+        // 两张表都有 task_id；逐表删除，分别证明缺少必需列检查时会拒绝。
+        for (const std::string table : {"task_completions", "task_progress_events"}) {
+            auto missingColumn = rows;
+            missingColumn.erase(std::remove_if(missingColumn.begin(), missingColumn.end(),
+                                               [&table](const WalletPrivilegeRow &r) {
+                                                   return r.kind == "column_privilege" && r.object == table &&
+                                                          r.column == "task_id";
+                                               }),
+                                missingColumn.end());
+            const auto missingReport = T::evaluate(missingColumn);
+            CHECK_FALSE(missingReport.ok());
+            CHECK_EQ(missingReport.missing.size(), 3u);  // 本表三个主体各缺一项
+            for (const std::string subject : {"current", "usapp_push", "public"}) {
+                const auto expected = "column_privilege/" + subject + "/" + table + ".task_id/UPDATE";
+                CHECK(std::find(missingReport.missing.begin(), missingReport.missing.end(), expected) !=
+                      missingReport.missing.end());
+            }
+        }
 
         const std::string summary = T::summary(widenedReport);
         CHECK_CONTAINS(summary, "task privilege policy:");
@@ -774,5 +927,32 @@ int main() {
     // 阶段 1 M3-B：任务发布与读取的纯函数、游标、映射与启动判定（见 TaskServiceUnitTests.h）。
     usapptest::taskunit::runTaskServiceUnitTests();
 
+    // 阶段 1 M3-C1：完成结算的纯函数（见 TaskCompletionUnitTests.h）。
+    usapptest::taskcompletionunit::runTaskCompletionUnitTests();
+
+    // M6: change request parsing, fingerprints, error mapping and additive Task fields.
+    usapptest::taskchangeunit::runTaskChangeUnitTests();
+
+    // M7: reward-product request parsing, fingerprints and error mapping.
+    usapptest::productunit::runProductUnitTests();
+    usapptest::redemptionunit::runRedemptionUnitTests();
+    usapptest::messageunit::runMessageUnitTests();
+    usapptest::reactionunit::run();
+    usapptest::anniversaryunit::runAnniversaryUnitTests();
+    usapptest::memoryunit::runMemoryUnitTests();
+    usapptest::albumunit::runAlbumUnitTests();
+    usapptest::notificationintentunit::runNotificationIntentUnitTests();
+    // P2-5a: push endpoint/key validation, fingerprint, marker and closed gate.
+    usapptest::pushunit::runPushUnitTests();
+    // P2-5b: dispatch outcome classes, tick plan and pre-send decisions.
+    usapptest::pushdispatchunit::runPushDispatchUnitTests();
+    usapptest::pushworkerunit::runPushWorkerUnitTests();
+    usapptest::reminderunit::runReminderUnitTests();
+
+    usapptest::deletionjournalunit::runDeletionJournalUnitTests();
+    usapptest::deletionrecoveryunit::runDeletionRecoveryUnitTests();
+    usapptest::deletionstartupunit::run();
+    usapptest::journalbridgeunit::run();
+    usapptest::recoverysourceunit::run();
     return usapptest::finish();
 }

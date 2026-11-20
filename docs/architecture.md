@@ -23,7 +23,7 @@ flowchart TB
     subgraph host["应用主机"]
         API["services/api：usapp_api<br/>Drogon 模块化单体<br/>public 监听 + admin 127.0.0.1:8081"]
         SCHED["进程内调度器<br/>（与 usapp_api 同一进程）"]
-        PUSH["services/push-worker<br/>127.0.0.1:8090，默认关闭"]
+        PUSH["services/push-worker<br/>私有网络 8090，默认关闭"]
     end
 
     PG[("PostgreSQL 17<br/>users / couples / couple_members /<br/>sessions / space_invites /<br/>admin_users / audit_logs / scheduler_ticks")]
@@ -38,8 +38,7 @@ flowchart TB
 
     API --> PG
     SCHED --> PG
-    API -.->|"阶段 0 不使用；仅骨架占位"| PUSH
-    PUSH --> PG
+    API -.->|"P2-5c：经令牌认证的内部调用，默认关闭"| PUSH
 ```
 
 **关于图中 `deploy/`**：`deploy/` 目录在仓库中存在，含 `docker-compose.yml`、`Caddyfile`、
@@ -73,9 +72,9 @@ flowchart TB
 - **两条监听面**：公开面（情侣端）与管理面（管理端）在后端是两个监听口、两套认证、两类 Cookie。
   管理入口在生产由主机层限制为仅回环可达，应用层再做一次 CIDR 白名单（`AppConfig::adminAllowedCidrs`）。
 - **单进程**：调度器跑在 `usapp_api` 主进程内，不引入 Redis、不引入独立调度服务。
-- **推送进程**：`services/push-worker` 有 `src/config.ts`、`src/logger.ts`、`src/policy.ts`、
-  `src/queue.ts`、`src/server.ts`、`src/index.ts` 与 `tests/*.test.ts`（均已存在），
-  默认 `PUSH_WORKER_ENABLED=false`，且 `PUSH_WORKER_HOST` 被强制校验为回环地址。
+- **推送进程**：`services/push-worker` 是无状态、经认证的传输进程（P2-5c，见
+  `docs/phase2-web-push.md` 第 16 节），不访问数据库。默认 `PUSH_WORKER_ENABLED=false`；
+  非回环监听必须显式设置 `PUSH_WORKER_PRIVATE_NETWORK=true`。
 
 ---
 

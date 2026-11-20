@@ -36,6 +36,9 @@ secrets/
 data/
 pgdata/
 backups/
+*.usbackup
+*.usbackup.json
+*.pgcustom
 *.dump
 *.sql.gz
 logs/
@@ -50,3 +53,6 @@ Thumbs.db
 
 # ---- 阶段 0 临时提取物（不是交付物） ----
 _req_extract.txt
+
+# Local isolated development checkouts.
+.worktrees/

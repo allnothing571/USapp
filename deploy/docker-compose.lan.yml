@@ -1,0 +1,23 @@
+# =====================================================================
+# USapp 局域网 HTTPS 覆盖文件（Android 同一 Wi-Fi 访问；deploy/LOCAL-HTTPS.md 第 8 节）
+#
+# 用法：在基础文件之后叠加，所有 compose 命令都必须带上它，否则会退回 localhost 配置：
+#   docker compose --env-file .\.env -f .\deploy\docker-compose.yml -f .\deploy\docker-compose.lan.yml ...
+#
+# 只改两项有效配置，镜像、卷、端口发布与其它环境变量全部沿用基础文件：
+#   - api：PUBLIC_ORIGIN 改为局域网规范地址（应用只接受一个精确相等的 Origin）；
+#   - caddy：改挂 Caddyfile.lan（公开站点按 IP 签发证书，localhost:8443 跳转到规范地址）。
+# 管理端口 8444 与 API 管理端口 8081 仍只发布在 127.0.0.1（基础文件），这里不改。
+# 局域网地址变化时，同时修改本文件与 Caddyfile.lan 中的地址。
+# 回滚：不带本文件，对 api 与 caddy 执行一次 up -d --no-deps --no-build（见 LOCAL-HTTPS.md）。
+# =====================================================================
+
+services:
+  api:
+    environment:
+      PUBLIC_ORIGIN: https://192.168.1.55:8443
+
+  caddy:
+    volumes:
+      # 同一挂载目标覆盖基础文件中的 ./Caddyfile；其余挂载（网页 dist、管理 dist、caddy_data/config）不变。
+      - ./Caddyfile.lan:/etc/caddy/Caddyfile:ro

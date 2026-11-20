@@ -100,8 +100,10 @@ BEGIN
     INSERT INTO wallet_ledger_entries (operation_id, couple_id, user_id, asset_type, seq, amount, balance_after)
         VALUES (op2, c1, ua, 'flower', 2, 3, 8);
     op3 := gen_random_uuid();
+    -- 通用链式扣减（不是兑换）：0015 起每个 REWARD_REDEMPTION 操作都必须关联一条兑换记录
+    -- （延迟校验 UM003），所以这里使用非任务来源的 TASK_REWARD 类型（0007 只校验 source_type = 'task'）。
     INSERT INTO wallet_operations (id, couple_id, actor_user_id, operation_type, source_type, source_id)
-        VALUES (op3, c1, ua, 'REWARD_REDEMPTION', 'psql_test', op3::text);
+        VALUES (op3, c1, ua, 'TASK_REWARD', 'psql_test', op3::text);
     INSERT INTO wallet_ledger_entries (operation_id, couple_id, user_id, asset_type, seq, amount, balance_after)
         VALUES (op3, c1, ua, 'flower', 3, -8, 0);
     IF (SELECT balance_after FROM wallet_ledger_entries
@@ -558,8 +560,32 @@ BEGIN
             -- 外键检查会先失败（0A000），无法证明只追加触发器。存在时显式列在钱包三表之后
             -- （不使用 CASCADE）；wallet_ledger_entries 仍排第一，期望的拒绝仍是 UW001。
             -- 只有执行到的分支才会被规划，所以 0007 未应用时不会引用不存在的表。
+            -- 0015 起 reward_redemptions 也引用 wallet_operations：存在时同样显式列在后面。
             IF to_regclass('public.task_completions') IS NULL THEN
                 TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts;
+            -- 0045 adds avatar_purchases referencing wallet_operations: listed last, no CASCADE.
+            ELSIF to_regclass('public.avatar_purchases') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, avatar_purchases, admin_redemption_cancellations;
+            -- 0023 adds the push dispatch chain referencing notifications: listed last, no CASCADE.
+            ELSIF to_regclass('public.push_deliveries') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, admin_redemption_cancellations;
+            ELSIF to_regclass('public.task_reactions') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions;
+            ELSIF to_regclass('public.notification_intents') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events,
+                         reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads,
+                         notification_intents;
+            ELSIF to_regclass('public.notifications') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events,
+                         reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads;
+            ELSIF to_regclass('public.reward_redemption_events') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events,
+                         reward_redemptions, reward_redemption_fulfillments, reward_redemption_events;
+            ELSIF to_regclass('public.reward_redemption_fulfillments') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events,
+                         reward_redemptions, reward_redemption_fulfillments;
+            ELSIF to_regclass('public.task_progress_events') IS NOT NULL THEN
+                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events;
             ELSE
                 TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions;
             END IF;

@@ -14,6 +14,7 @@ const navItems = [
   { name: 'users', label: '用户' },
   { name: 'couples', label: '情侣空间' },
   { name: 'audit', label: '审计日志' },
+  { name: 'avatar-catalog', label: '阳光商店' },
 ] as const;
 
 const showChrome = computed(() => session.authenticated);
@@ -29,7 +30,7 @@ async function onLogout(): Promise<void> {
     <header class="app-header">
       <div class="app-brand">
         USapp 管理后台
-        <span class="tag placeholder">阶段 0 · 只读骨架</span>
+        <span class="tag placeholder">本地运维</span>
       </div>
 
       <nav v-if="showChrome" class="app-nav" aria-label="主导航">
@@ -57,7 +58,7 @@ async function onLogout(): Promise<void> {
     <footer class="app-footer">
       <span class="mono">build:{{ buildLabel }}</span>
       ·
-      <span>本界面为运维只读视图；权限判定完全由服务端负责，前端不做任何授权逻辑。</span>
+      <span>本地运维界面；权限判定由服务端负责，商品修改记录审计。</span>
     </footer>
   </div>
 </template>

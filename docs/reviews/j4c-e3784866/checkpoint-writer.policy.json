@@ -1,0 +1,30 @@
+{
+  "Statement": [
+    {
+      "Action": [
+        "oss:GetObject"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "acs:oss:*:*:usapp-j4c-log-e3784866/journals/0afe377a-3e06-4134-997f-4f1a437b8492/batches/*"
+      ]
+    },
+    {
+      "Action": [
+        "ots:DescribeTable",
+        "ots:GetRow",
+        "ots:GetRange",
+        "ots:PutRow",
+        "ots:UpdateRow",
+        "ots:StartLocalTransaction",
+        "ots:CommitTransaction",
+        "ots:AbortTransaction"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "acs:ots:cn-shanghai:1567452047414069:instance/uj4ce3784866/table/journal"
+      ]
+    }
+  ],
+  "Version": "1"
+}

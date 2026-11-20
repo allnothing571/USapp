@@ -77,6 +77,95 @@ inline bool parses(const std::string &json) {
 }
 
 inline void runTaskServiceUnitTests() {
+    TEST_CASE("M5: daily counting is explicit, date-bound and preserves one-off fingerprints") {
+        TaskService::CreateInput input;
+        CHECK(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2,"schedule_type":"daily"})", input));
+        CHECK_EQ(input.scheduleType, std::string("daily"));
+        const auto daily = TaskService::createFingerprint(input);
+        input.scheduleType = "one_off";
+        CHECK_NE(TaskService::createFingerprint(input), daily);
+        CHECK_FALSE(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"schedule_type":"daily"})", input));
+        CHECK_FALSE(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2,"schedule_type":"monthly"})", input));
+        CHECK_FALSE(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2,"schedule_type":"daily","deadline":{"local_date":"2026-10-20"}})", input));
+        // M5-B: weekly has the same publication rules and a distinct fingerprint;
+        // the daily and one-off canonical strings above are unchanged.
+        CHECK(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2,"schedule_type":"weekly"})", input));
+        const auto weekly = TaskService::createFingerprint(input);
+        CHECK_NE(weekly, daily);
+        CHECK_FALSE(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"schedule_type":"weekly"})", input));
+        CHECK_FALSE(parses(R"({"title":"D","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2,"schedule_type":"weekly","deadline":{"local_date":"2026-10-25"}})", input));
+        // Mondays across a year boundary, a leap year and a 2029 New Year's Eve; other weekdays fail.
+        for (const char *monday : {"2026-10-19", "2024-12-30", "2028-02-28", "2029-12-31", "1970-01-05"})
+            CHECK(TaskService::isWeekStart(monday));
+        for (const char *other : {"2026-10-18", "2026-10-25", "2025-01-01", "2028-02-29", "1970-01-01", "2026-02-30"})
+            CHECK_FALSE(TaskService::isWeekStart(other));
+        CHECK(TaskService::validPeriodDate("2028-02-29"));
+        CHECK_FALSE(TaskService::validPeriodDate("2026-02-29"));
+        CHECK_FALSE(TaskService::validPeriodDate("2026-10-16T00:00"));
+        TaskService::TaskData task;
+        task.scheduleType = "daily";
+        task.completionMode = "count";
+        task.periodDate = "2026-10-16";
+        CHECK_EQ(TaskService::taskJson(task)["period_date"].asString(), task.periodDate);
+        task.scheduleType = "weekly";
+        task.periodDate = "2026-10-19";
+        CHECK_EQ(TaskService::taskJson(task)["schedule_type"].asString(), std::string("weekly"));
+        CHECK_EQ(TaskService::taskJson(task)["period_date"].asString(), task.periodDate);
+        task.scheduleType = "custom";
+        task.periodDate.clear();
+        task.startDate = "2026-10-26";
+        const auto customJson = TaskService::taskJson(task);
+        CHECK_EQ(customJson["start_date"].asString(), task.startDate);
+        CHECK_FALSE(customJson.isMember("period_date"));
+    }
+
+    TEST_CASE("M5-C: custom range publication is one bounded counting interval") {
+        TaskService::CreateInput input;
+        const std::string base = R"({"title":"R","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":3,"schedule_type":"custom")";
+        CHECK(parses(base + R"(,"start_date":"2026-12-31","end_date":"2027-01-02"})", input));
+        CHECK_EQ(input.startDate, std::string("2026-12-31"));
+        CHECK_EQ(input.deadlineLocalDate, std::string("2027-01-02"));
+        CHECK(input.deadlineLocalTime.empty());
+        const auto range = TaskService::createFingerprint(input);
+        CHECK(parses(base + R"(,"start_date":"2026-12-30","end_date":"2027-01-02"})", input));
+        CHECK_NE(TaskService::createFingerprint(input), range);  // the start date is part of the identity
+        CHECK(parses(base + R"(,"start_date":"2026-10-26","end_date":"2026-10-26"})", input));  // same day
+        const std::vector<std::string> rejected = {
+            base + R"(,"start_date":"2026-10-27","end_date":"2026-10-26"})",            // end before start
+            base + R"(,"start_date":"2026-10-26"})",                                    // missing end
+            base + R"(,"start_date":"2026-02-30","end_date":"2026-03-01"})",            // invalid date
+            base + R"(,"start_date":"2026-10-26","end_date":"2026-10-27","deadline":{"local_date":"2026-10-27"}})",
+            R"({"title":"R","reward_flowers":1,"reward_sunshine":0,"schedule_type":"custom","start_date":"2026-10-26","end_date":"2026-10-27"})",
+            R"({"title":"R","reward_flowers":1,"reward_sunshine":0,"start_date":"2026-10-26","end_date":"2026-10-27"})",
+        };
+        for (const auto &body : rejected) CHECK_FALSE(parses(body, input));
+    }
+
+    TEST_CASE("M4: counting publication rules, legacy fingerprints and response defaults") {
+        TaskService::CreateInput input;
+        const std::vector<std::pair<std::string, bool>> cases = {
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":1})", true},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2147483647})", true},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":0})", false},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":1.0})", false},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count","target_count":2147483648})", false},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"count"})", false},
+            {R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"single","target_count":2})", false},
+        };
+        for (const auto &c : cases) CHECK_EQ(parses(c.first, input), c.second);
+        CHECK(parses(R"({"title":"T","reward_flowers":1,"reward_sunshine":0})", input));
+        const auto legacy = TaskService::createFingerprint(input);
+        CHECK(parses(R"({"title":"T","reward_flowers":1,"reward_sunshine":0,"completion_mode":"single","target_count":1})", input));
+        CHECK_EQ(TaskService::createFingerprint(input), legacy);
+        input.completionMode = "count";
+        CHECK_NE(TaskService::createFingerprint(input), legacy);
+        TaskService::TaskData data;
+        CHECK_FALSE(TaskService::taskJson(data).isMember("completion_mode"));
+        data.completionMode = "count";
+        data.targetCount = 3;
+        CHECK_EQ(TaskService::taskJson(data)["progress_count"].asInt(), 0);
+        CHECK_EQ(TaskService::taskJson(data)["target_count"].asInt(), 3);
+    }
     using TE = TaskService::TextError;
 
     TEST_CASE("TaskService: 标题严格 UTF-8、去首尾 Zs 空白、1-40 个码点、拒绝控制字符与换行") {
@@ -388,21 +477,24 @@ inline void runTaskServiceUnitTests() {
             CHECK_NOT_CONTAINS(sql, "OFFSET");
         }
         const std::string dated = TaskService::listSql(Q::OpenAfterDated);
-        CHECK_CONTAINS(dated, "(t.deadline_at IS NOT NULL AND (t.deadline_at, t.created_at, t.id) > "
+        CHECK_CONTAINS(dated, "(t.deadline_at IS NOT NULL AND (t.deadline_at, t.created_at, COALESCE(t.recurrence_id, t.id)) > "
                               "($2::timestamptz, $3::timestamptz, $4::uuid)) OR t.deadline_at IS NULL");
         CHECK_CONTAINS(dated, "LIMIT $5::integer");
         const std::string undated = TaskService::listSql(Q::OpenAfterUndated);
-        CHECK_CONTAINS(undated, "t.deadline_at IS NULL AND (t.created_at, t.id) > ($2::timestamptz, $3::uuid)");
+        CHECK_CONTAINS(undated, "t.deadline_at IS NULL AND (t.created_at, COALESCE(t.recurrence_id, t.id)) > ($2::timestamptz, $3::uuid)");
         CHECK_CONTAINS(undated, "LIMIT $4::integer");
         CHECK_CONTAINS(TaskService::listSql(Q::OpenFirst),
-                       "ORDER BY t.deadline_at ASC NULLS LAST, t.created_at ASC, t.id ASC LIMIT $2::integer");
+                       "ORDER BY t.deadline_at ASC NULLS LAST, t.created_at ASC, COALESCE(t.recurrence_id, t.id) ASC LIMIT $2::integer");
         const std::string historyAfter = TaskService::listSql(Q::HistoryAfter);
-        CHECK_CONTAINS(historyAfter, "(COALESCE(c.completed_at, t.deadline_at), t.id) < ($2::timestamptz, $3::uuid)");
+        // M6: a closed row's history key is its immutable closed_at (completed_at, else closed_at, else deadline_at).
+        CHECK_CONTAINS(historyAfter,
+                       "(COALESCE(c.completed_at, kc.closed_at, t.deadline_at), t.id) < ($2::timestamptz, $3::uuid)");
         CHECK_CONTAINS(historyAfter, "interval '30 days'");
-        CHECK_CONTAINS(historyAfter, "ORDER BY COALESCE(c.completed_at, t.deadline_at) DESC, t.id DESC LIMIT $4::integer");
+        CHECK_CONTAINS(historyAfter,
+                       "ORDER BY COALESCE(c.completed_at, kc.closed_at, t.deadline_at) DESC, t.id DESC LIMIT $4::integer");
         CHECK_CONTAINS(historyAfter, "HH24:MI:SS.US");
         CHECK_CONTAINS(TaskService::getSql(), "WHERE m.user_id = $1::uuid");
-        CHECK_CONTAINS(TaskService::getSql(), "t.couple_id = m.couple_id AND t.id = $2::uuid");
+        CHECK_CONTAINS(TaskService::getSql(), "t.couple_id = m.couple_id AND COALESCE(t.recurrence_id, t.id) = $2::uuid");
     }
 
     TEST_CASE("TaskService: Task 响应形状与结果到 HTTP 的映射") {
@@ -415,7 +507,8 @@ inline void runTaskServiceUnitTests() {
         task.status = "open";
         task.createdAt = "2026-10-09T01:02:03.123456Z";
         Json::Value json = TaskService::taskJson(task);
-        CHECK_EQ(json.size(), 11u);
+        CHECK_EQ(json.size(), 12u);
+        CHECK(json["reaction"].isNull());
         CHECK(json["deadline"].isNull());
         CHECK(json["completed_at"].isNull());
         CHECK(json["reward_flowers"].isInt());

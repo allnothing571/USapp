@@ -256,7 +256,9 @@ inline void runWalletLedgerDbTests(const ClientPtr &pool, const std::string &dsn
                     operationSql(op2, f.coupleOne, f.userA),
                     entrySql(op2, f.coupleOne, f.userA, F, 2, 3, 8),
                     entrySql(op2, f.coupleOne, f.userA, S, 1, 40, 40),
-                    operationSql(op3, f.coupleOne, f.userA, "REWARD_REDEMPTION"),
+                    // Generic debit to zero: since 0015 every REWARD_REDEMPTION operation must be
+                    // linked to a redemption row (deferred UM003), so a plain operation is used here.
+                    operationSql(op3, f.coupleOne, f.userA),
                     entrySql(op3, f.coupleOne, f.userA, F, 3, -8, 0),
                     operationSql(op4, f.coupleOne, f.userA),
                     entrySql(op4, f.coupleOne, f.userA, F, 4, 999, 999),
@@ -571,9 +573,11 @@ inline void runWalletLedgerDbTests(const ClientPtr &pool, const std::string &dsn
                     entrySql(op1, f.coupleOne, f.userA, F, 1, 5, 5),
                     operationSql(op2, f.coupleOne, f.userB, "TASK_REWARD", "", keyAndFingerprint(key, fingerprint())),
                     entrySql(op2, f.coupleOne, f.userB, F, 1, 5, 5),
-                    operationSql(op3, f.coupleOne, f.userA, "REWARD_REDEMPTION", "",
+                    // Same actor and key, another type (REDEMPTION_REFUND: REWARD_REDEMPTION needs a
+                    // linked redemption row since 0015).
+                    operationSql(op3, f.coupleOne, f.userA, "REDEMPTION_REFUND", "",
                                  keyAndFingerprint(key, fingerprint())),
-                    entrySql(op3, f.coupleOne, f.userA, F, 2, -1, 4)};
+                    entrySql(op3, f.coupleOne, f.userA, F, 2, 1, 6)};
             });
         }
         {

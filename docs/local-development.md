@@ -189,14 +189,12 @@ openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:'<口令>' -kdfopt hex
    cd services/push-worker
    pnpm install
    pnpm run build
-   node dist/index.js
+   node dist/src/index.js
    ```
 
-   默认 `PUSH_WORKER_ENABLED=false`。`src/config.ts` 会强制校验
-   `PUSH_WORKER_HOST ∈ {127.0.0.1, ::1, localhost}`，非回环直接退出；
-   当 `PUSH_WORKER_ENABLED=true` 时三个 VAPID 变量必须齐全，否则启动失败。
-   该进程的 `start` 脚本指向 `dist/index.js`，而 `src/index.ts` 不在仓库中，
-   因此这一步目前也预期会失败。本次未执行。
+   默认 `PUSH_WORKER_ENABLED=false`，打印说明后以 0 退出。非回环 `PUSH_WORKER_HOST` 必须同时设置
+   `PUSH_WORKER_PRIVATE_NETWORK=true`；启用时 `PUSH_WORKER_TOKEN` 与三个 VAPID 变量必须齐全，否则以 78 退出。
+   说明见 `services/push-worker/README.md`（P2-5c）。
 
 ---
 
@@ -212,6 +210,8 @@ openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:'<口令>' -kdfopt hex
 | `MAIL_MODE` | `log` | 本地不真实投递邮件，验证码写日志 |
 | `SCHEDULER_ENABLED` | `true` | 进程内调度（阶段 0 只有锁基础） |
 | `SCHEDULER_KEY_NAMESPACE` | `usapp.scheduler` | 跨实例必须完全一致，改动等同于换锁 |
+| `REMINDERS_ENABLED` | `false` | P2-6 R2 应用内提醒生成；开启前数据库必须已应用 0026 |
+| `MEMORY_PURGE_ENABLED` | `false` | D6 M1d 到期后不可逆地擦除已删除回忆的文字；没有外部删除日志和恢复演练不得在生产开启，开启前数据库必须已应用 0039 |
 
 ---
 

@@ -1,0 +1,19 @@
+# =====================================================================
+# deploy/docker-compose.test-maint.yml
+#
+# NOT APPROVED, DO NOT USE. The owner has not approved a superuser credential for the shared
+# PostgreSQL instance: a database name in that connection string is not isolation, because a
+# superuser can reach every database in the instance. Replacement proposal:
+# docs/phase2-web-push.md Section 14.5. Kept unchanged below for the record.
+#
+# P2-5b only, test profile only: gives the one-shot test-runner a maintenance connection to
+# usapp_test, because owner control operations (enable / disable / resume) are restricted to the
+# maintenance role by migration 0023. No other service changes, and the api still never holds the
+# superuser password. Compose interpolates the values from .env without printing them.
+#
+# Without this file the push_dispatch CTest target exits 77 (Skipped); everything else is unchanged.
+# =====================================================================
+services:
+  test-runner:
+    environment:
+      USAPP_TEST_MAINT_CONNINFO: "host=postgres port=5432 dbname=usapp_test user='${POSTGRES_SUPERUSER:-postgres}' password='${POSTGRES_SUPERUSER_PASSWORD}'"

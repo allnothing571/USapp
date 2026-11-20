@@ -13,7 +13,7 @@
 export const ALLOWED_OPERATIONS = [
   /** 自检：返回进程健康与配置摘要 */
   'push.health',
-  /** 投递一条已经由 C++ 主进程决定好的推送消息（阶段 1+ 接入） */
+  /** 投递一条已经由 C++ 主进程决定好的推送消息（POST /v1/deliver） */
   'push.deliver',
 ] as const;
 
@@ -63,7 +63,7 @@ export const FORBIDDEN_RESPONSIBILITIES: readonly ForbiddenResponsibility[] = Ob
   },
   {
     pattern: 'db.write.',
-    reason: '本进程在阶段 0 不持有数据库凭证，也不执行任何写操作。',
+    reason: '本进程不持有数据库凭证，也不执行任何写操作。',
   },
   {
     pattern: 'admin.',

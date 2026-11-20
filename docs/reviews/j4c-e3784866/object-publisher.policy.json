@@ -1,0 +1,15 @@
+{
+  "Statement": [
+    {
+      "Action": [
+        "oss:PutObject",
+        "oss:GetObject"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "acs:oss:*:*:usapp-j4c-log-e3784866/journals/0afe377a-3e06-4134-997f-4f1a437b8492/batches/*"
+      ]
+    }
+  ],
+  "Version": "1"
+}

@@ -66,6 +66,7 @@ export default defineConfig({
         // - icons/、apple-touch-icon.png、favicon.svg 由 includeAssets 单独登记，
         //   这里排除是为了避免同一 URL 在预缓存清单里出现两次。
         globIgnores: [
+          '**/avatars/**', // Public placeholder art is cached on first use, not private API data or an all-art precache.
           '**/sw.js',
           '**/sw.js.map',
           '**/icons/**',

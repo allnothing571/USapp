@@ -1,21 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 
 import { adminApi, type Health } from '@/api/admin';
 import { AdminApiError } from '@/api/client';
 import StageFiveAction from '@/components/StageFiveAction.vue';
 import { formatDateTime } from '@/utils/format';
+import { useSystemStatusStore } from '@/stores/system-status';
 
-/**
- * 总览骨架。
- *
- * 阶段 0 只能显示契约真实提供的东西：
- * - `GET /api/admin/v1/health` → status / version / time。
- *
- * 数据库连通性与迁移版本**契约里没有端点**，因此这里只能放占位卡片。
- * 不写假数据、不做前端猜测探测：显示一个编造的 "迁移版本 0007" 比显示
- * "契约未定义" 危险得多 —— 运维会真的据此判断能否上线。
- */
+const system = useSystemStatusStore();
+onUnmounted(() => system.reset());
 
 const health = ref<Health | null>(null);
 const healthError = ref<string | null>(null);
@@ -41,6 +35,7 @@ async function loadHealth(): Promise<void> {
 
 onMounted(() => {
   void loadHealth();
+  void system.load();
 });
 </script>
 
@@ -48,7 +43,7 @@ onMounted(() => {
   <div>
     <h1 class="page-title">总览</h1>
     <p class="page-subtitle">
-      阶段 0 的服务健康与版本信息。所有数据均来自管理 API，前端不做任何推断。
+      只读服务信息与运维快照。配置状态不代表工作进程正在执行，也不代表已通过上线验收。
     </p>
 
     <div v-if="healthError" class="notice error" role="alert">
@@ -79,62 +74,45 @@ onMounted(() => {
 
     <div class="panel">
       <div class="panel-head">
-        <h2 class="panel-title">数据库与迁移</h2>
-        <span class="tag placeholder">契约未定义</span>
+        <h2 class="panel-title">数据库与功能状态</h2>
+        <button class="btn" type="button" :disabled="system.loading" @click="system.load">刷新运维快照</button>
       </div>
       <div class="panel-body">
-        <div class="notice warn">
-          阶段 0 的冻结契约（<span class="mono">contracts/openapi.yaml</span>）中
-          <strong>没有</strong>暴露数据库连通性、连接池状态或 schema 迁移版本的任何端点。
-          因此这里不显示任何数值 —— 显示占位而不是编造数字，是本界面唯一诚实的做法。
-        </div>
-        <div class="stat-grid">
-          <div class="stat">
-            <div class="stat-label">数据库连通性</div>
-            <div class="stat-value faint">未定义</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">当前迁移版本</div>
-            <div class="stat-value faint">未定义</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">待应用迁移</div>
-            <div class="stat-value faint">未定义</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">连接池</div>
-            <div class="stat-value faint">未定义</div>
-          </div>
-        </div>
+        <div v-if="system.error" class="notice error" role="alert">{{ system.error }}</div>
+        <p v-if="system.loading">正在读取…</p>
+        <dl v-if="system.snapshot" class="kv">
+          <dt>快照时间</dt><dd>{{ formatDateTime(system.snapshot.read_at) }}</dd>
+          <dt>数据库查询</dt><dd>本次查询成功</dd>
+          <dt>已登记迁移数</dt><dd>{{ system.snapshot.database.migration_count }}</dd>
+          <dt>最新迁移记录</dt><dd>{{ system.snapshot.database.latest_migration ?? '无' }}</dd>
+          <dt>调度配置</dt><dd>{{ system.snapshot.process.scheduler_configured ? '开启' : '关闭' }}</dd>
+          <dt>任务提醒配置</dt><dd>{{ system.snapshot.process.reminders_configured ? '开启' : '关闭' }}</dd>
+          <dt>回忆清理配置</dt><dd>{{ system.snapshot.process.memory_purge_configured ? '开启' : '关闭' }}</dd>
+          <dt>当前进程上传能力</dt><dd>{{ system.snapshot.process.uploads_enabled ? '可用' : '关闭' }}</dd>
+          <dt>邮件模式</dt><dd>{{ system.snapshot.process.mail_mode === 'smtp' ? 'SMTP 发送配置' : '日志模式（不发信）' }}</dd>
+          <dt>注册策略</dt><dd>{{ system.snapshot.process.registration_mode === 'whitelist' ? '白名单' : '开放注册' }}</dd>
+        </dl>
+        <p class="muted">仅反映本次数据库查询和当前 API 进程配置；不检查迁移文件校验和、其他进程存活、邮件送达、备份新鲜度或恢复就绪状态。上传操作仍由服务端逐次决定。</p>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-head">
         <h2 class="panel-title">运维动作</h2>
-        <span class="tag placeholder">阶段 5</span>
+        <span class="tag">操作入口</span>
       </div>
       <div class="panel-body">
         <p class="muted" style="margin-top: 0">
-          以下能力在阶段 0 一律未实现。按钮保持 disabled 只是为了让"本该有什么"可见，
-          它不构成任何安全边界 —— 服务端根本没有对应端点。
+          资产纠错需先选择用户；备份目前通过受限的本地工具执行。
         </p>
         <div class="toolbar">
           <StageFiveAction
             label="触发数据库备份"
             :stage="5"
-            reason="备份编排与保留策略尚未设计；阶段 0 无任何触发端点。"
+            reason="已有签名加密备份与隔离恢复工具；网页不执行主机命令，定时、密钥保管与异地副本尚待配置。"
           />
-          <StageFiveAction
-            label="修正用户资产"
-            :stage="5"
-            reason="资产体系尚未进入契约；阶段 0 管理界面严格只读。"
-          />
-          <StageFiveAction
-            label="维护阳光商店"
-            :stage="5"
-            reason="商店是阶段 5 业务域，阶段 0 不暴露任何写入端点。"
-          />
+          <RouterLink class="btn" :to="{ name: 'users' }">选择用户并查看／纠错资产</RouterLink>
+          <RouterLink class="btn" :to="{ name: 'avatar-catalog' }">维护阳光商店</RouterLink>
         </div>
       </div>
     </div>

@@ -1,0 +1,15 @@
+{
+  "creation_authorized": false,
+  "files": {
+    "REVIEW.md": "41c696bb27493d41eaf81728e79467bcb5d6f07d89b532ce864fbc10359f1374",
+    "checkpoint-writer.policy.json": "13f9b23a19f170ad0710c622a244b302c863edc15980df8ee0ea37ad20137fd5",
+    "object-publisher.policy.json": "99a7c6fa8a80eadae415efcbb42deb872161879c4b34cd5ebc29cc61aa67b236",
+    "plan.j4c-plan.json": "3571f635a3db1c001eab4c5223706d914f059aedbeef0589f7a013864e8c9d23",
+    "proposed-initial-head.json": "641f66e90ee2ad760083d5c02e13ad7598dbcce7541314cd4ce8b8ade1669938",
+    "recovery-reader.policy.json": "7da653c2000b2a2e5629fad75c67d66f7939b318092e1dff40edcd3ae1564e9d",
+    "resource-settings.json": "b6ab5354523208a46ba0049e575f6c087e77e03dfbf00fe6e9106e9ea211e731"
+  },
+  "manifest_sha256": "e18500bfe6efe8064febc018d495cdd7de14ca3d001ff6bcf4958dc8d6c9cedc",
+  "ownership_verified": false,
+  "version": 1
+}

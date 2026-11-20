@@ -1,6 +1,7 @@
 // =====================================================================
 // services/api/src/controllers/AdminController.cc
 //
+// GET    /api/admin/v1/system/status                已登录管理员只读运维快照
 // GET    /api/admin/v1/health                       存活探针
 // GET    /api/admin/v1/session                      管理会话引导 / CSRF 获取
 // POST   /api/admin/v1/sessions                     管理员登录（独立账号体系）
@@ -33,6 +34,7 @@
 #include "http/ControllerSupport.h"
 #include "http/HttpUtil.h"
 #include "services/AdminAuthService.h"
+#include "services/MediaService.h"
 
 namespace usapp::controllers {
 
@@ -60,6 +62,8 @@ class AdminController : public drogon::HttpController<AdminController> {
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(AdminController::health, "/api/admin/v1/health", drogon::Get,
                   AdminFilter::classTypeName());
+    ADD_METHOD_TO(AdminController::systemStatus, "/api/admin/v1/system/status", drogon::Get,
+                  AdminFilter::classTypeName());
     ADD_METHOD_TO(AdminController::bootstrap, "/api/admin/v1/session", drogon::Get,
                   AdminFilter::classTypeName());
     ADD_METHOD_TO(AdminController::login, "/api/admin/v1/sessions", drogon::Post,
@@ -81,6 +85,38 @@ class AdminController : public drogon::HttpController<AdminController> {
         body["version"] = AppConfig::instance().appVersion;
         body["time"] = http::nowIso8601Utc();
         callback(jsonResponse(body, 200));
+    }
+
+    // Authenticated, read-only, explicit allowlist. A configuration flag is not worker liveness or release readiness.
+    void systemStatus(const drogon::HttpRequestPtr &req, Callback &&callback) {
+        if (adminctx::userId(req).empty()) {
+            callback(ctrl::fail(ErrorCode::Unauthenticated, "管理员未登录", req));
+            return;
+        }
+        const auto &cfg = AppConfig::instance();
+        Json::Value process(Json::objectValue);
+        process["scheduler_configured"] = cfg.schedulerEnabled;
+        process["reminders_configured"] = cfg.remindersEnabled;
+        process["memory_purge_configured"] = cfg.memoryPurgeEnabled;
+        process["uploads_enabled"] = MediaService::instance().uploadsEnabled();
+        process["mail_mode"] = cfg.mailMode;
+        process["registration_mode"] = cfg.registrationMode;
+        db::Pool::instance().client()->execSqlAsync(
+            "SELECT count(*)::integer AS migration_count, max(version) AS latest_migration FROM schema_migrations",
+            [callback, process](const drogon::orm::Result &rows) {
+                Json::Value result(Json::objectValue), database(Json::objectValue);
+                database["migration_count"] = rows[0]["migration_count"].as<int>();
+                database["latest_migration"] = rows[0]["latest_migration"].isNull() ? Json::Value(Json::nullValue)
+                    : Json::Value(rows[0]["latest_migration"].as<std::string>());
+                result["database"] = database;
+                result["process"] = process;
+                result["read_at"] = http::nowIso8601Utc();
+                callback(jsonResponse(result, 200));
+            },
+            [req, callback](const drogon::orm::DrogonDbException &) {
+                // Do not disclose DSNs, server diagnostics, credentials or host paths.
+                callback(ctrl::fail(ErrorCode::InternalError, "运维快照读取失败", req));
+            });
     }
 
     // ------------------------------------------------------------------

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "offline_only",
+  "run_id": "1234abcd",
+  "journal_id": "00000000-0000-0000-0000-000000000041",
+  "region": "cn-shanghai",
+  "budget_cny": 5,
+  "declared_owner_uid": "1234567890123456",
+  "bucket": "usapp-j4c-log-1234abcd",
+  "instance": "uj4c1234abcd",
+  "table": "journal"
+}

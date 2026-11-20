@@ -1,0 +1,62 @@
+# =====================================================================
+# deploy/docker-compose.test-isolated.yml
+#
+# Owner-approved (P2-5b repair verification): a STANDALONE disposable test stack. It is never merged
+# with docker-compose.yml or the LAN override, and shares nothing with the existing stack:
+#   - its own PostgreSQL 17 process, with data on tmpfs (gone when the container stops);
+#   - one project-scoped internal network: no outbound route, no published ports, no host networking;
+#   - no named volumes and no Docker socket; the only bind mount is the roles script, read-only;
+#   - credentials generated per run by Claude outputs/p25b-isolated-verify.ps1 and passed through the
+#     process environment. They are not production values and never appear in a file.
+# The superuser connection below reaches only this disposable instance.
+# Run it only through that script: it gives a unique project name and disables automatic .env loading.
+# The ${...:?} forms fail fast if a credential is missing, rather than falling back to anything.
+# =====================================================================
+services:
+  postgres:
+    image: postgres:17
+    pull_policy: never
+    restart: "no"
+    environment:
+      POSTGRES_DB: usapp_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ISO_SUPERUSER_PASSWORD:?generated per run}
+      POSTGRES_API_USER: usapp_api
+      POSTGRES_API_PASSWORD: ${ISO_API_PASSWORD:?generated per run}
+      POSTGRES_PUSH_USER: usapp_push
+      POSTGRES_PUSH_PASSWORD: ${ISO_PUSH_PASSWORD:?generated per run}
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=1g
+    volumes:
+      - type: bind
+        source: ./docker-entrypoint-initdb.d
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d usapp_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test-runner:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      target: tester
+    image: usapp-isolated-test-runner:p25b
+    pull_policy: never
+    restart: "no"
+    profiles: ["test"]
+    environment:
+      USAPP_ROOT: /workspace
+      USAPP_TEST_DSN: "postgresql://usapp_api:${ISO_API_PASSWORD:?generated per run}@postgres:5432/usapp_test"
+      USAPP_TEST_MAINT_CONNINFO: "host=postgres port=5432 dbname=usapp_test user=postgres password=${ISO_SUPERUSER_PASSWORD:?generated per run}"
+      USAPP_TEST_EXPECT_PRE0024: "1"
+    networks:
+      - isolated
+
+networks:
+  isolated:
+    internal: true

@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { adminHttp } from '../../src/api/admin';
+import { systemApi } from '../../src/api/system';
 
 import { createAdminApi } from '../../src/api/admin';
 import {
@@ -408,5 +410,14 @@ describe('AdminApi — 会话引导与令牌轮换', () => {
     for (const request of requests) {
       expect(request.method).toBe('GET');
     }
+  });
+});
+
+
+describe('operational snapshot binding', () => {
+  it('uses only the same-origin GET path without a command body', async () => {
+    const request = vi.spyOn(adminHttp, 'request').mockResolvedValueOnce({});
+    try { await systemApi.read(); expect(request).toHaveBeenCalledWith('/system/status'); }
+    finally { request.mockRestore(); }
   });
 });

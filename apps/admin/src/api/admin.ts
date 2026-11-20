@@ -1,10 +1,4 @@
-/**
- * 管理 API 绑定层 —— 逐条对应 `contracts/openapi.yaml` 的 `/api/admin/v1/**`。
- *
- * 这里**只**封装契约已经定义的管理端点。契约里没有的端点（资产修正、
- * 阳光商店维护、备份触发、数据库/迁移状态……）在本文件里不存在，
- * 阶段 0 也不允许凭空发明。
- */
+/** Management session and baseline list bindings; feature-specific modules share adminHttp below. */
 
 import { AdminHttpClient, type QueryValue } from './client';
 

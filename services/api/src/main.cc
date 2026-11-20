@@ -31,7 +31,9 @@
 #include <string>
 #include <thread>
 
+#include "services/ExportService.h"
 #include "config/AppConfig.h"
+#include "core/Env.h"
 #include "core/Errors.h"
 #include "db/Db.h"
 #include "db/TaskStartupCheck.h"
@@ -40,7 +42,18 @@
 #include "http/AuthFilter.h"
 #include "http/HttpUtil.h"
 #include "scheduler/Scheduler.h"
+#include "scheduler/jobs/PushDispatchJob.h"
+#include "scheduler/jobs/MediaCleanupJob.h"
+#include "scheduler/jobs/MemoryPurgeJob.h"
+#include "scheduler/jobs/ReminderJob.h"
 #include "scheduler/jobs/SchedulerHeartbeatJob.h"
+#include "services/MediaService.h"
+#include "services/DeletionStartupCheck.h"
+#include "services/OssObjectStore.h"
+#include "services/PushDispatch.h"
+#include "services/PushService.h"
+#include "services/ReminderGeneration.h"
+#include "services/PushWorkerTransport.h"
 #include "services/AdminAuthService.h"
 #include "services/RegistrationPolicy.h"
 
@@ -96,6 +109,8 @@ bool waitForDatabase(int maxAttempts) {
     const AppConfig &cfg = AppConfig::instance();
     try {
         usapp::db::Pool::instance().init(cfg.postgresConnectionString(), cfg.postgresPoolSize);
+        // E1 export: two dedicated single-connection sessions, one per admission slot (docs/user-data-export-design.md Section 7).
+        usapp::ExportService::init(cfg.postgresConnectionString(), 2);
     } catch (const std::exception &e) {
         LOG_ERROR << "数据库连接池初始化失败：" << e.what();
         return false;
@@ -130,6 +145,31 @@ bool startScheduler() {
             cfg.schedulerEnabled, cfg.schedulerTickIntervalMs, cfg.schedulerInstanceId);
         usapp::scheduler::Scheduler::instance().registerJob(
             std::make_shared<usapp::scheduler::SchedulerHeartbeatJob>());
+        // P2-6 R2: before push.dispatch, so a reminder can fan out in the same tick. Off by default; nothing is
+        // written at startup.
+        usapp::reminder::Policy reminderPolicy;
+        reminderPolicy.enabled = cfg.remindersEnabled;
+        usapp::scheduler::Scheduler::instance().registerJob(std::make_shared<usapp::scheduler::ReminderJob>(
+            std::make_shared<usapp::reminder::Generator>(std::move(reminderPolicy))));
+        // Without a configured store (the default; see main) media stays disabled and this job writes nothing.
+        usapp::scheduler::Scheduler::instance().registerJob(std::make_shared<usapp::scheduler::MediaCleanupJob>());
+        // D6 M1d: irreversible, and off by default. Off, it reads and writes nothing.
+        usapp::scheduler::Scheduler::instance().registerJob(std::make_shared<usapp::scheduler::MemoryPurgeJob>(cfg.memoryPurgeEnabled));
+        // P2-5b/c: durable dispatch job. Without a complete PUSH_ENABLED worker configuration there
+        // is no transport, the capability stays incomplete and an enabled control fails closed.
+        // Nothing is written at startup, and only the owner's control row ever enables dispatch.
+        usapp::push::Policy pushPolicy;
+        pushPolicy.localEnabled = usapp::env::getBool("PUSH_ENABLED", false);
+        pushPolicy.vapidKeyId =
+            usapp::PushService::configFrom(false, usapp::env::get("PUSH_VAPID_PUBLIC_KEY"), false).vapidKeyId;
+        pushPolicy.markerSecret = cfg.sessionSecret;
+        pushPolicy.instanceId = cfg.schedulerInstanceId.empty() ? std::string("api") : cfg.schedulerInstanceId;
+        std::shared_ptr<usapp::push::Transport> pushTransport;
+        if (auto worker = usapp::push::workerConfigFromEnv()) {
+            pushTransport = std::make_shared<usapp::push::WorkerTransport>(std::move(*worker));
+        }
+        usapp::scheduler::Scheduler::instance().registerJob(std::make_shared<usapp::scheduler::PushDispatchJob>(
+            std::make_shared<usapp::push::Dispatcher>(std::move(pushPolicy), std::move(pushTransport))));
         usapp::scheduler::Scheduler::instance().start();
     } catch (const std::exception &e) {
         LOG_ERROR << "调度启动失败：" << e.what();
@@ -209,6 +249,30 @@ int main() {
         return 1;
     }
     LOG_INFO << usapp::db::TaskPrivilegePolicy::summary(*taskStartup.report);
+
+    // P3-1d: real object storage is opt-in. Off by default; on but incomplete refuses startup, naming variables and never values.
+    std::string mediaProblem;
+    auto ossConfig = usapp::media::ossConfigFromEnv(mediaProblem);
+    if (!mediaProblem.empty()) {
+        LOG_ERROR << "media store configuration refused: " << mediaProblem;
+        return 1;
+    }
+    // J3c refusal gate: before storage configuration, listeners, jobs or bootstrap writes.
+    // An open DB marker alone is NOT independent checkpoint validation or permission to serve restored photos.
+    const auto deletionStartup = usapp::deletionstartup::check(usapp::db::Pool::instance().client(),
+        {ossConfig.has_value(), cfg.memoryPurgeEnabled});
+    if (!deletionStartup.allowed()) {
+        LOG_ERROR << "deletion startup refused: " << deletionStartup.reason();
+        return 1;
+    }
+    LOG_INFO << "deletion startup: " << deletionStartup.reason();
+    if (ossConfig) {
+        // This remains unreachable until a reviewed durable journal adapter and external recovery authority are wired.
+        usapp::MediaService::Policy mediaPolicy;
+        ossConfig->readUrlSeconds = mediaPolicy.readUrlSeconds;
+        usapp::MediaService::instance().configure(mediaPolicy, std::make_shared<usapp::media::OssObjectStore>(std::move(*ossConfig)));
+        LOG_INFO << "media store: oss";
+    }
 
     // ---- 3) Drogon 运行参数 ----
     // 阶段 0 的请求体都很小（验证码、邀请码、JSON 元数据），这里给一个明确上限：

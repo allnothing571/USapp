@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(export_reconnect_probe LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+find_package(Drogon CONFIG REQUIRED)
+find_package(PostgreSQL REQUIRED)
+add_executable(export_reconnect_probe probe.cc)
+target_link_libraries(export_reconnect_probe PRIVATE Drogon::Drogon PostgreSQL::PostgreSQL)

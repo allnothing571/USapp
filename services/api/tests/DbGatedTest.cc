@@ -23,6 +23,8 @@
 //   8. 阶段 1 M3-A：任务表约束、只追加、权限矩阵与结算一致性（TaskLedgerDbTests.h，只回滚）。
 //   9. 阶段 1 M3-B：真实 TaskService 发布与读取（TaskServiceDbTests.h）。提交按次隔离的
 //      任务夹具（随机 uuid、@m3-fixture.test 域名，永久保留）；需要完成记录的用例只回滚。
+//  10. 阶段 1 M3-C1：真实 TaskCompletionService 结算（TaskCompletionDbTests.h）。提交按次隔离的
+//      真实结算与少量非任务来源的夹具/持锁操作（永久保留）；不含 D33 临界余额夹具。
 //
 // 依赖：usapp_core、PostgreSQL 17 测试库。
 // =====================================================================
@@ -41,12 +43,90 @@
 #include <vector>
 
 #include "AdminFilterProbe.h"
+#include "TaskCompletionDbTests.h"
+#include "TaskProgressDbTests.h"
+#include "DailyTaskDbTests.h"
+#include "WeeklyTaskDbTests.h"
+#include "CustomRangeDbTests.h"
+#include "ProductDbTests.h"
+#include "RedemptionDbTests.h"
+#include "RedemptionWorkflowDbTests.h"
+#include "AnniversaryDbTests.h"
+#include "NotificationDbTests.h"
+#include "NotificationChoiceDbTests.h"
+#include "PushDbTests.h"
+#include "ReminderDbTests.h"
+#include "ReminderJobDbTests.h"
+#include "ReminderSuccessorDbTests.h"
+#include "ReminderSourceDbTests.h"
+#include "ReminderLiveApiTest.h"
+#include "MediaDbTests.h"
+#include "MemoryDbTests.h"
+#include "DeletionRecoveryDbTests.h"
+#include "DeletionStartupDbTests.h"
+#include "AlbumDbTests.h"
+#include "AlbumRenameDbTests.h"
+#include "SharedPlanDbTests.h"
+#include "AlbumOldApiTest.h"
+#include "OssServiceDbTests.h"
+#include "MediaDeletionDbTests.h"
+#include "JournalMediaDbTests.h"
+#include "JournalMemoryDbTests.h"
+#include "JournalPurgeDbTests.h"
+#include "JournalCleanupDbTests.h"
+#include "MemoryDeletionDbTests.h"
+#include "MemoryDeleteRequestDbTests.h"
+#include "MemoryCascadeDbTests.h"
+#include "IntentDiagnosticsDbTests.h"
+#include "MemoryEraseDbTests.h"
+#include "MemoryProposalHistoryDbTests.h"
+#include "AlbumProposalHistoryDbTests.h"
+#include "MediaUnattachedDbTests.h"
+#include "MediaCapabilityDbTests.h"
+#include "PhaseThreeNotificationDbTests.h"
+#include "AvatarCatalogDbTests.h"
+#include "AvatarPurchaseDbTests.h"
+#include "AvatarLoadoutDbTests.h"
+#include "AchievementDbTests.h"
+#include "ExportDbTests.h"
+#include "ExportLiveApiTest.h"
+#include "AdminWalletDbTests.h"
+#include "AdminWalletLiveApiTest.h"
+#include "AdminTaskDbTests.h"
+#include "AdminRedemptionDbTests.h"
+#include "AdminUserSessionDbTests.h"
+#include "AdminNotificationDbTests.h"
+#include "AdminSharedPlanDbTests.h"
+#include "AdminTaskLiveApiTest.h"
+#include "AdminRedemptionLiveApiTest.h"
+#include "AdminUserSessionLiveApiTest.h"
+#include "AdminNotificationLiveApiTest.h"
+#include "AdminSharedPlanLiveApiTest.h"
+#include "AdminAlbumDbTests.h"
+#include "AdminAlbumLiveApiTest.h"
+#include "AdminMemoryDbTests.h"
+#include "AdminMemoryLiveApiTest.h"
+#include "AdminAnniversaryDbTests.h"
+#include "AdminAnniversaryLiveApiTest.h"
+#include "AdminProductDbTests.h"
+#include "AdminProductLiveApiTest.h"
+#include "AdminWalletAdjustmentDbTests.h"
+#include "AdminRedemptionCancellationDbTests.h"
+#include "SecurityNotificationDbTests.h"
+#include "SecurityNotificationLiveApiTest.h"
+#include "AdminRedemptionCancellationLiveApiTest.h"
+#include "AdminWalletAdjustmentLiveApiTest.h"
+#include "MessageDbTests.h"
+#include "TaskReactionDbTests.h"
+#include "TaskChangeDbTests.h"
 #include "TaskLedgerDbTests.h"
 #include "TaskServiceDbTests.h"
 #include "TestDatabaseGuard.h"
 #include "TestSupport.h"
+#include "ObserverLifetimeDbTests.h"
 #include "WalletLedgerDbTests.h"
 #include "WalletReadDbTests.h"
+#include "config/AppConfig.h"
 #include "core/Crypto.h"
 #include "core/Errors.h"
 #include "db/Db.h"
@@ -57,6 +137,7 @@
 
 int main() {
     using namespace usapp;
+    usapptest::installCrashDiagnostics();
 
     // -----------------------------------------------------------------
     // 0. 数据库环境门控校验
@@ -121,6 +202,45 @@ int main() {
         std::printf("[ INFO ] 目标库守卫通过: current_database() = %s\n", usapptest::kExpectedTestDatabase);
     }
 
+    // P2-6 R2: run only against a database that deliberately lacks the 0026 repair (the isolated verification,
+    // before it applies 0026). Without this variable the gate below refuses such a database.
+    if (std::getenv("USAPP_TEST_EXPECT_NO_0026")) {
+        usapptest::reminderjob::runMissingMigration(db::Pool::instance().client(), dsn, "0026_reminder_next_fire", "0025_reminders");
+        return usapptest::finish();
+    }
+    // P2-6 R4: the same, on a database holding 0026 and not yet 0027.
+    if (std::getenv("USAPP_TEST_EXPECT_NO_0027")) {
+        usapptest::reminderjob::runMissingMigration(db::Pool::instance().client(), dsn, "0027_reminder_successor_rules", "0026_reminder_next_fire");
+        return usapptest::finish();
+    }
+
+    // P3-2b rollback: the P3-2a API binary on this schema, started by the isolated verification; this is the whole run.
+    if (const char *oldApiUrl = std::getenv("USAPP_TEST_ALBUM_OLD_API_URL")) {
+        usapptest::albumoldapi::run(db::Pool::instance().client(), dsn, oldApiUrl);
+        return usapptest::finish();
+    }
+
+    // The real API binary, started by the isolated verification with one flag combination; this is the whole run.
+    if (const char *apiUrl = std::getenv("USAPP_TEST_REMINDER_API_URL")) {
+        const char *expected = std::getenv("USAPP_TEST_EXPECT_GENERATION");
+        usapptest::reminderliveapi::run(db::Pool::instance().client(), dsn, apiUrl, expected && std::string(expected) == "true");
+        usapptest::exportliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminwalletliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::admintaskliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminredemptionliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminusersessionliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminnotificationliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminsharedplanliveapi::run(db::Pool::instance().client(), dsn, apiUrl);
+        usapptest::adminalbumliveapi::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::adminmemoryliveapi::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::adminanniversaryliveapi::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::adminproductliveapi::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::adminadjustmentliveapi::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::admincancellive::run(db::Pool::instance().client(),dsn,apiUrl);
+        usapptest::securitynoticelive::run(db::Pool::instance().client(),dsn,apiUrl);
+        return usapptest::finish();
+    }
+
     // 迁移完整性门控：阶段 0 的 6 个迁移与阶段 1 M2-A 的 0006 必须全部已应用（精确匹配完整 BaseName）
     const std::vector<std::string> expectedMigrations = {
         "0000_schema_migrations",
@@ -130,7 +250,51 @@ int main() {
         "0004_scheduler",
         "0005_admin_audit",
         "0006_wallet_ledger",
-        "0007_tasks_one_off"
+        "0007_tasks_one_off",
+        "0008_task_counting",
+        "0009_daily_tasks",
+        "0010_weekly_tasks",
+        "0011_custom_range_tasks",
+        "0012_custom_action_guard",
+        "0013_task_changes",
+        "0014_reward_products",
+        "0015_reward_redemptions", "0016_redemption_workflow",
+        "0017_messages",
+        "0018_anniversaries", "0019_notifications",
+        "0020_notification_choices",
+        "0021_task_reactions",
+        "0022_push_subscriptions",
+        "0023_push_dispatch",
+        "0024_push_dispatch_repairs",
+        "0025_reminders",
+        "0026_reminder_next_fire",
+        "0027_reminder_successor_rules",
+        "0028_reminder_push_stale",
+        "0029_media",
+        "0030_memories",
+        "0031_albums",
+        "0032_album_rename",
+        "0033_shared_plans",
+        "0034_shared_plan_memory",
+        "0035_media_deletion",
+        "0036_memory_deletion",
+        "0037_memory_delete_requests",
+        "0038_memory_photo_cascade",
+        "0039_memory_text_erasure",
+        "0040_memory_eraser_safety",
+        "0041_timestamp_guards",
+        "0042_deletion_recovery",
+        "0043_phase3_notifications",
+        "0044_avatar_catalog",
+        "0045_avatar_purchases",
+        "0046_avatar_loadouts",
+        "0047_achievements",
+        "0048_push_command_timestamp",
+        "0049_admin_wallet_adjustments",
+        "0050_wallet_member_actor_compat",
+        "0051_admin_redemption_cancellations",
+        "0052_personal_security_notifications",
+        "0053_memory_decision_timestamp"
     };
 
     try {
@@ -162,6 +326,203 @@ int main() {
     }
 
     auto client = db::Pool::instance().client();
+    if (std::getenv("USAPP_TEST_ONLY_DELETION_STARTUP_PORTS")) {
+        TEST_CASE("Deletion startup: both proposed listener ports remain closed after refusal") {
+            for(const auto *url:{"http://127.0.0.1:18080/api/v1/health","http://127.0.0.1:18081/api/admin/v1/health"}) {
+                CHECK_EQ(usapptest::reminderliveapi::get(url).status,0L);
+            }
+        }
+        return usapptest::finish();
+    }
+
+    if (std::getenv("USAPP_TEST_ONLY_DELETION_STARTUP") || std::getenv("USAPP_TEST_ONLY_DELETION_STARTUP_CLOSED")) {
+        usapptest::deletionstartupdb::run(client,std::getenv("USAPP_TEST_ONLY_DELETION_STARTUP_CLOSED")!=nullptr);
+        return usapptest::finish();
+    }
+
+
+    if (std::getenv("USAPP_TEST_ONLY_OBSERVER_LIFETIME")) {
+        usapptest::observerlifetime::run(client, dsn);
+        return usapptest::finish();
+    }
+
+    // P3-1a iteration: only the media suite, for a targeted first run.
+    if (std::getenv("USAPP_TEST_ONLY_MEDIA")) {
+        usapptest::media::runMediaDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    // D6: only the media deletion suite. CTest runs it as its own target; the full run below does not repeat it.
+    if (std::getenv("USAPP_TEST_ONLY_MEDIA_DELETION")) {
+        usapptest::mediadeletion::runMediaDeletionDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_JOURNAL_MEDIA")) {
+        usapptest::journalmedia::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_JOURNAL_MEMORY")) {
+        usapptest::journalmemory::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_JOURNAL_PURGE")) {
+        usapptest::journalpurge::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_JOURNAL_CLEANUP")) {
+        usapptest::journalcleanup::run(client, dsn);
+        return usapptest::finish();
+    }
+    // Design Section 13: an intermittent USAPP_NOTIFICATION_INTENT_SOURCE states which predicate failed, in labels and counts only. This is the only place that turns it on.
+    usapp::intent::setSourceFailureSink([](const std::string &line) {
+        std::printf("INTENT_SOURCE_DIAG %s\n", line.c_str());
+        std::fflush(stdout);
+    });
+    // J3b deliberately leaves this database CLOSED. Harness-only, after all other suites, never parallel CTest.
+    if (std::getenv("USAPP_TEST_ONLY_DELETION_RECOVERY")) {
+        usapptest::deletionrecoverydb::run(client, dsn);
+        return usapptest::finish();
+    }
+    // D6 J2b1, J2b2, J2c1: the journal service suites, in the order the full run uses. CTest runs them as journal_services_db, with the
+    // diagnostic sink above on as in the full run; db_gated sets USAPP_TEST_SEPARATE_JOURNAL so the full run does not repeat them.
+    if (std::getenv("USAPP_TEST_ONLY_JOURNAL_SERVICES")) {
+        usapptest::journalmedia::run(client, dsn);
+        usapptest::journalmemory::run(client, dsn);
+        usapptest::journalpurge::run(client, dsn);
+        return usapptest::finish();
+    }
+    // Album rename-request history: CTest runs it as album_history_db; the full run below does not include it (kept out of db_gated's
+    // margin, docs/phase3-p32b-album-rename-design.md Section 8).
+    // Unattached-upload recovery: CTest runs it as unattached_db; the full run below does not include it (kept out of db_gated's margin).
+    // Upload capability: CTest runs it as media_capability_db; the full run below does not include it (kept out of db_gated's margin).
+    // D20 notifications: CTest runs them as phase3_notification_db; the full run below does not include them (kept out of db_gated's margin).
+    // Phase 4 B1 avatar catalog: CTest runs it as avatar_catalog_db; the full run below does not include it.
+    // Phase 4 B2 avatar purchases: CTest runs them as avatar_purchase_db; the full run below does not include them.
+    // Phase 4 B3 avatar loadouts: CTest runs them as avatar_loadout_db; the full run below does not include them.
+    // E1 export: CTest runs the main suite as export_db (kept out of db_gated). LARGE and CLOSURE are harness-only; CLOSURE
+    // commits a J3 recovery closure and must run last, never in parallel CTest.
+    // Admin wallet inspection: CTest runs it as admin_wallet_db (kept out of db_gated).
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_WALLET")) {
+        usapptest::adminwallet::run(client, dsn);
+        return usapptest::finish();
+    }
+    // Admin task inspection: CTest runs it as admin_task_db (kept out of db_gated).
+    if (std::getenv("USAPP_TEST_ONLY_SECURITY_NOTICE")) {usapptest::securitynotice::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_CANCEL")) {usapptest::admincancel::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_ADJUSTMENT")) {usapptest::adminadjustment::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_PRODUCT")) {usapptest::adminproduct::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_ANNIVERSARY")) {usapptest::adminanniversary::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_MEMORY")) {usapptest::adminmemory::run(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_MEMORY_CLOSED")) {usapptest::adminmemory::runClosed(client,dsn);return usapptest::finish();}
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_ALBUM")) {
+        usapptest::adminalbum::run(client,dsn);return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_ALBUM_CLOSED")) {
+        usapptest::adminalbum::runClosed(client,dsn);return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_SHARED_PLAN")) {
+        usapptest::adminsharedplan::run(client,dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_NOTIFICATION")) {
+        usapptest::adminnotification::run(client,dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_USER_SESSION")) {
+        usapptest::adminusersession::run(client,dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_REDEMPTION")) {
+        usapptest::adminredemption::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ADMIN_TASK")) {
+        usapptest::admintask::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_EXPORT")) {
+        usapptest::exportdb::run(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_EXPORT_CONNECTION_LOSS")) {
+        usapptest::exportdb::runConnectionLoss(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_EXPORT_LARGE")) {
+        usapptest::exportdb::runLarge(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_EXPORT_CLOSURE")) {
+        usapptest::exportdb::runClosure(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ACHIEVEMENT")) {
+        usapptest::achievement::runAchievementDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_AVATAR_LOADOUT")) {
+        usapptest::avatarloadout::runAvatarLoadoutDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_AVATAR_PURCHASE")) {
+        usapptest::avatarpurchase::runAvatarPurchaseDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_AVATAR_CATALOG")) {
+        usapptest::avatar::runAvatarCatalogDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_PHASE3_NOTIFICATIONS")) {
+        usapptest::phase3notification::runPhaseThreeNotificationDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_MEDIA_CAPABILITY")) {
+        usapptest::mediacapability::runMediaCapabilityDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_UNATTACHED")) {
+        usapptest::mediaunattached::runMediaUnattachedDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    if (std::getenv("USAPP_TEST_ONLY_ALBUM_HISTORY")) {
+        usapptest::albumproposalhistory::runAlbumProposalHistoryDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    // D6 M1a: only the memory deletion suite. CTest runs it as its own target; the full run below does not repeat it.
+    if (std::getenv("USAPP_TEST_ONLY_MEMORY_DELETION")) {
+        usapptest::memorydeletion::runMemoryDeletionDbTests(client, dsn);
+        usapptest::memorydeleterequest::runMemoryDeleteRequestDbTests(client);
+        usapptest::memorycascade::runMemoryCascadeDbTests(dsn);
+        usapptest::intentdiag::runIntentDiagnosticsDbTests();
+        usapptest::memoryerase::runMemoryEraseDbTests();
+        usapptest::memoryproposalhistory::runMemoryProposalHistoryDbTests();
+        return usapptest::finish();
+    }
+    // P3-1d iteration: only the service-through-adapter suite.
+    if (std::getenv("USAPP_TEST_ONLY_OSS")) {
+        usapptest::ossservice::runOssServiceDbTests(client, dsn);
+        return usapptest::finish();
+    }
+    // P3-1b iteration: only the memory suite.
+    if (std::getenv("USAPP_TEST_ONLY_MEMORY")) {
+        usapptest::memory::runMemoryDbTests(client, dsn);
+        return usapptest::finish();
+    }
+
+    // P3-2a iteration: only the album suite.
+    if (std::getenv("USAPP_TEST_ONLY_ALBUM")) {
+        usapptest::album::runAlbumDbTests(client, dsn);
+        usapptest::albumrename::runAlbumRenameDbTests(client, dsn);
+        return usapptest::finish();
+    }
+
+    // P2-6 R2 iteration: only the reminder suites, for a targeted first run.
+    if (std::getenv("USAPP_TEST_ONLY_REMINDER_JOB")) {
+        usapptest::reminder::runReminderDbTests(client, dsn);
+        usapptest::reminderjob::runReminderJobDbTests(client, dsn);
+        usapptest::remindersuccessor::runReminderSuccessorDbTests(client, dsn);
+        usapptest::remindersource::runReminderSourceDbTests();
+        return usapptest::finish();
+    }
 
     // -----------------------------------------------------------------
     // 1. 预认证会话与正式会话生命周期
@@ -1752,5 +2113,67 @@ int main() {
     //     与启动检查（见 TaskServiceDbTests.h）。已提交夹具只含任务及其非钱包父行。
     usapptest::taskservice::runTaskServiceDbTests(client, dsn);
 
+    // 15. M3-C1：真实 TaskCompletionService 结算 R1-R9（见 TaskCompletionDbTests.h）。
+    //     永久提交按次隔离的结算夹具（@m3-fixture.test）；不含 D33 临界余额夹具。
+    usapptest::taskcompletion::runTaskCompletionDbTests(client, dsn);
+    // 16. M4: committed counting events and final settlement; no reset or cap fixture.
+    usapptest::taskprogress::runTaskProgressDbTests(client, dsn);
+    // 17. M5-A: lazy daily occurrences, old-period replay and per-period settlement.
+    usapptest::daily::runDailyTaskDbTests(client, dsn);
+    // 18. M5-B: weekly periods, week-boundary replay/staleness and weekly SQL guards.
+    usapptest::weekly::runWeeklyTaskDbTests(client, dsn);
+    // 19. M5-C: bounded custom ranges: upcoming rejection, same-day settlement, expiry replay.
+    usapptest::customrange::runCustomRangeDbTests(client, dsn);
+    // 20. M6: confirmed edits/cancellations, closure races, replay facts and SQL guards.
+    usapptest::taskchange::runTaskChangeDbTests(client, dsn);
+    // 21. M7: reward products: visibility, versioned edits/archive, replay, SQL guards, no wallet writes.
+    usapptest::product::runProductDbTests(client, dsn);
+    // 22. M8: direct redemption: balance races, snapshots, stale terms, fulfilment, SQL guards.
+    usapptest::redemption::runRedemptionDbTests(client, dsn);
+
+    // 23. M9: request confirmation and mutual refund lifecycle.
+    usapptest::redemptionworkflow::runRedemptionWorkflowDbTests(client, dsn);
+    // 24. P2-1: messages: visibility, replay, single reply races, pages, SQL guards.
+    usapptest::message::runMessageDbTests(client, dsn);
+    // 25. P2-2: anniversaries: replay, edits, proposals, decision races, pins, Home, pages, SQL guards.
+    usapptest::anniversary::runAnniversaryDbTests(client, dsn);
+
+    usapptest::notification::runNotificationDbTests(client, dsn);
+    // 27. P2-3b: optional notifications, intents and remembered choices.
+    usapptest::notificationchoice::runNotificationChoiceDbTests(client, dsn);
+
+    // 28. P2-4: actual-completion reactions, replay and period identity.
+    usapptest::reaction::run(client, dsn);
+    // 29. P2-5a: push subscription generations, replay, cap, re-own, sessions and SQL guards.
+    usapptest::push::runPushDbTests(client, dsn);
+    // P2-6 R1/R2/R4/R5: CTest runs this existing focused group as reminder_services_db.
+    // A direct full run still includes all four suites unless explicitly separated.
+    if (!std::getenv("USAPP_TEST_SEPARATE_REMINDERS")) {
+        usapptest::reminder::runReminderDbTests(client, dsn);
+        usapptest::reminderjob::runReminderJobDbTests(client, dsn);
+        usapptest::remindersuccessor::runReminderSuccessorDbTests(client, dsn);
+        usapptest::remindersource::runReminderSourceDbTests();
+    }
+    // 34. P3-1a: private media against a fake object store: immutable READY, the cleanup fence, late objects.
+    if (!std::getenv("USAPP_TEST_SEPARATE_MEDIA")) {
+        usapptest::media::runMediaDbTests(client, dsn);
+    }
+    // 35. P3-1b: photo memories: permissions, binding at approval, release on decision, cleanup races, paging.
+    usapptest::memory::runMemoryDbTests(client, dsn);
+    // 36. P3-1d: the real media service through the real OSS adapter, against a local TLS model only.
+    usapptest::ossservice::runOssServiceDbTests(client, dsn);
+    // 37. P3-2a: shared albums: permissions, removal, partner access, order, cover, cleanup races, memory compatibility.
+    usapptest::album::runAlbumDbTests(client, dsn);
+    // 38. P3-2b: album rename and requests: permissions, replay, races, rollback, independence from photos and covers.
+    usapptest::albumrename::runAlbumRenameDbTests(client, dsn);
+    usapptest::sharedplan::run(client);
+    // The journal service suites: CTest's db_gated sets USAPP_TEST_SEPARATE_JOURNAL and runs them as journal_services_db instead.
+    // A direct run of this binary without that variable still runs them here.
+    if (!std::getenv("USAPP_TEST_SEPARATE_JOURNAL")) {
+        usapptest::journalmedia::run(client, dsn);
+        usapptest::journalmemory::run(client, dsn);
+        usapptest::journalpurge::run(client, dsn);
+    }
+    // Journal cleanup is covered by its own CTest target under the same 30 s limit.
     return usapptest::finish();
 }

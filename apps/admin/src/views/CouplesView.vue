@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router';
+
 import { adminApi, type AdminCoupleListItem } from '@/api/admin';
 import CursorPager from '@/components/CursorPager.vue';
 import StageFiveAction from '@/components/StageFiveAction.vue';
@@ -41,14 +43,21 @@ const list = useCursorList<AdminCoupleListItem>((request) =>
               <th>名称</th>
               <th>成员数</th>
               <th>创建时间</th>
+              <th>任务</th>
+              <th>兑换</th>
+              <th>计划</th>
+              <th>相册</th>
+              <th>回忆</th>
+              <th>纪念日</th>
+              <th>奖励商品</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="list.loading.value">
-              <td class="empty-row" colspan="4">加载中…</td>
+              <td class="empty-row" colspan="11">加载中…</td>
             </tr>
             <tr v-else-if="list.isEmpty.value">
-              <td class="empty-row" colspan="4">没有数据</td>
+              <td class="empty-row" colspan="11">没有数据</td>
             </tr>
             <template v-else>
               <tr v-for="item in list.items.value" :key="item.id">
@@ -56,6 +65,15 @@ const list = useCursorList<AdminCoupleListItem>((request) =>
                 <td>{{ item.name }}</td>
                 <td class="cell-id">{{ formatCount(item.member_count) }}</td>
                 <td class="cell-time">{{ formatDateTime(item.created_at) }}</td>
+                <td>
+                  <RouterLink :to="{ name: 'couple-tasks', params: { coupleId: item.id } }" :data-test="`tasks-${item.id}`">只读查看</RouterLink>
+                </td>
+                <td><RouterLink :to="{ name: 'couple-redemptions', params: { coupleId: item.id } }">只读查看兑换</RouterLink></td>
+                <td><RouterLink :to="{ name: 'couple-shared-plans', params: { coupleId: item.id } }">只读查看计划</RouterLink></td>
+                <td><RouterLink :to="{ name: 'couple-albums', params: { coupleId: item.id } }">只读查看相册</RouterLink></td>
+                <td><RouterLink :to="{ name: 'couple-memories', params: { coupleId: item.id } }">只读查看回忆</RouterLink></td>
+                <td><RouterLink :to="{ name: 'couple-anniversaries', params: { coupleId: item.id } }">只读查看纪念日</RouterLink></td>
+                <td><RouterLink :to="{ name: 'couple-products', params: { coupleId: item.id } }">只读查看奖励</RouterLink></td>
               </tr>
             </template>
           </tbody>
@@ -91,9 +109,9 @@ const list = useCursorList<AdminCoupleListItem>((request) =>
             reason="解散语义（数据保留、成员通知）尚未定义，阶段 0 禁止写入。"
           />
           <StageFiveAction
-            label="维护阳光商店"
+            label="修正空间成员阳光"
             :stage="5"
-            reason="商店是阶段 5 业务域。"
+            reason="商品管理不提供资产修正；手动调账另行设计。"
           />
         </div>
       </div>

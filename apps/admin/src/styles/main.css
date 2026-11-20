@@ -8,6 +8,15 @@
  * - 没有任何外部字体/图标网络请求：管理入口只绑定回环，必须能离线打开。
  */
 
+.avatar-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.avatar-admin { display: grid; gap: 16px; }
+.avatar-admin .card { background: var(--us-warm-surface); border: 1px solid var(--us-warm-border); border-radius: var(--us-radius); padding: 16px; }
+.avatar-admin-form fieldset { border: 0; padding: 0; display: grid; gap: 12px; }
+.avatar-admin-form label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.avatar-admin-form input:not([type=checkbox]), .avatar-admin-form select { max-width: 100%; padding: 6px; }
+.avatar-admin pre, .avatar-admin td, .avatar-admin p { overflow-wrap: anywhere; }
+.avatar-admin pre { white-space: pre-wrap; }
+.avatar-admin .table-wrap { overflow-x: auto; }
 :root {
   /* —— 暖色底 —— */
   --us-warm-bg: #f7f3ec;

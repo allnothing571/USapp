@@ -236,6 +236,8 @@ void AppConfig::load() {
     }
     schedulerInstanceId = env::get("SCHEDULER_INSTANCE_ID", "local");
     schedulerKeyNamespace = env::get("SCHEDULER_KEY_NAMESPACE", "usapp.scheduler");
+    remindersEnabled = env::getBool("REMINDERS_ENABLED", false);
+    memoryPurgeEnabled = env::getBool("MEMORY_PURGE_ENABLED", false);
 
     adminBootstrapUsername = env::get("ADMIN_BOOTSTRAP_USERNAME", "");
     adminBootstrapPasswordHash = env::get("ADMIN_BOOTSTRAP_PASSWORD_HASH", "");

@@ -1,0 +1,1 @@
+const o={heart:"❤️",clap:"👏",flower:"🌸"};function r(e){return e.kind==="emoji"?o[e.emoji_code]:e.body??""}function n(e){return Array.from(e).length>=1&&Array.from(e).length<=40&&!/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(e)}export{o as R,r,n as v};

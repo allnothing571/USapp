@@ -86,6 +86,8 @@ class AppConfig {
 
     // ---- 调度 ----
     bool schedulerEnabled;
+    bool remindersEnabled;  // P2-6 R2: REMINDERS_ENABLED, default false
+    bool memoryPurgeEnabled;  // D6 M1d: MEMORY_PURGE_ENABLED, default false. Irreversible; see docs/phase3-d6-memory-deletion-design.md Section 9
     int schedulerTickIntervalMs;
     std::string schedulerInstanceId;
     std::string schedulerKeyNamespace;
