@@ -116,7 +116,7 @@
       "layers": {
         "main": {
           "file": "expression.placeholder_wink.v1.main.svg",
-          "sha256": "930e3cc09918d3b786da6bf4d2a5ce2871910273a82c03825ca361fd06189d97"
+          "sha256": "ac26bfa0bf84cf841ba9a9563b2efabb1d79b1912e13a354eea77fab8e96c18b"
         }
       }
     },
@@ -130,7 +130,7 @@
       "layers": {
         "main": {
           "file": "hat.placeholder_cap.v1.main.svg",
-          "sha256": "daf49655bf1de4596b198bf2e58eb6497379ebc124340be73e962e6cb19fd59e"
+          "sha256": "cb2b58d09624636d41a3b246ffe06c2df79065edb29be8fd8b733a3c2c921fb5"
         }
       }
     },

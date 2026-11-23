@@ -327,6 +327,10 @@ describe('avatar UI and public-art boundary', () => {
     expect(w.get('[data-test="avatar-bald"] img').attributes('src')).toBe('/avatars/' + manifest.bases.male.file)
     await w.get('[data-test="avatar-bald"]').trigger('click')
     expect(stage.findAll('[data-layer^="hair:"]')).toHaveLength(0)
+    await w.get('[data-test="avatar-bald"]').trigger('click')
+    expect(stage.get('[data-layer="hair:front"]').attributes('src')).toBe(itemThumbnail(hair()))
+    await w.get('[data-test="avatar-bald"]').trigger('click')
+    expect(stage.findAll('[data-layer^="hair:"]')).toHaveLength(0)
     expect(saveAvatarLoadout).not.toHaveBeenCalled()
     const req: LoadoutRequest = { expected_version: 0, character_gender: 'male', hair_hidden: true,
       slots: { hair: id(1), clothes: id(2), expression: id(3), hat: null, handheld: null, accessory: null } }

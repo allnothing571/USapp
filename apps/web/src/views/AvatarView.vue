@@ -78,7 +78,7 @@ async function pick(item: AvatarItem | null): Promise<void> {
   if (stage.value && stage.value.getBoundingClientRect().bottom <= 0) stage.value.focus()
 }
 function chooseBald(): void {
-  draftBald.value = true
+  draftBald.value = !previewBald.value
   dirty.value = true
 }
 const changedBase = computed(() => dirty.value && store.appearanceStatus === 'ready' && store.appearance &&
