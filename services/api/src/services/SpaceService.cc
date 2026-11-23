@@ -302,7 +302,11 @@ void acceptStepConsumeInvite(const AcceptInviteCtxPtr &ctx) {
                 return;
             }
             ctx->usedCount += 1;
-            acceptStepAudit(ctx);
+            ctx->scope->tx().execSqlAsync(
+                "SELECT public.usapp_room_initialize_positions($1::uuid, $2::uuid)",
+                [ctx](const drogon::orm::Result &) { acceptStepAudit(ctx); },
+                [ctx](const drogon::orm::DrogonDbException &e) { failWithDb(ctx->scope, "初始化站位失败", e); },
+                ctx->userId, ctx->inviteId);
         },
         [ctx](const drogon::orm::DrogonDbException &e) {
             failWithDb(ctx->scope, "消费邀请失败", e);
@@ -610,6 +614,7 @@ void SpaceService::getSpaceForMember(const std::string &userId,
 namespace {
 
 struct InviteCreateCtx {
+    std::string issuerSide;
     std::string userId;
     SpaceService::InviteCreatedCallback cb;
 };
@@ -655,8 +660,8 @@ void inviteCreateAttempt(const InviteCreateCtxPtr &ctx, int attemptsLeft) {
     try {
         db::Pool::instance().client()->execSqlAsync(
             "INSERT INTO space_invites "
-            "(couple_id, code_hash, code_prefix, created_by_user_id, max_uses, expires_at) "
-            "SELECT m.couple_id, $2, $3, $1::uuid, $4::integer, now() + make_interval(secs => $5::integer) "
+            "(couple_id, code_hash, code_prefix, created_by_user_id, max_uses, expires_at, room_issuer_side) "
+            "SELECT m.couple_id, $2, $3, $1::uuid, $4::integer, now() + make_interval(secs => $5::integer), NULLIF($6, '') "
             "FROM couple_members AS m WHERE m.user_id = $1::uuid "
             "ON CONFLICT (code_hash) DO NOTHING "
             "RETURNING id::text AS id, couple_id::text AS couple_id, "
@@ -690,7 +695,7 @@ void inviteCreateAttempt(const InviteCreateCtxPtr &ctx, int attemptsLeft) {
             codeHash,
             prefix,
             SpaceService::kInviteMaxUses,
-            SpaceService::kInviteTtlSeconds);
+            SpaceService::kInviteTtlSeconds, ctx->issuerSide);
     } catch (const std::exception &e) {
         ctx->cb(makeStatus(SpaceService::Outcome::Error, std::string("创建邀请异常: ") + e.what()),
                 "", "", "");
@@ -699,15 +704,30 @@ void inviteCreateAttempt(const InviteCreateCtxPtr &ctx, int attemptsLeft) {
 
 }  // namespace
 
-void SpaceService::createInvite(const std::string &userId, InviteCreatedCallback cb) {
-    if (userId.empty()) {
-        cb(makeStatus(Outcome::Validation, "缺少用户标识"), "", "", "");
+void SpaceService::createInvite(const std::string &userId, InviteCreatedCallback cb, const std::string &issuerSide) {
+    if (userId.empty() || (!issuerSide.empty() && issuerSide != "left" && issuerSide != "right")) {
+        cb(makeStatus(Outcome::Validation, "用户或站位无效"), "", "", "");
         return;
     }
     auto ctx = std::make_shared<InviteCreateCtx>();
     ctx->userId = userId;
+    ctx->issuerSide = issuerSide;
     ctx->cb = std::move(cb);
     inviteCreateAttempt(ctx, kInviteMaxInsertAttempts);
+}
+
+void SpaceService::previewInvite(const std::string &userId, const std::string &normalizedCode,
+                                 std::function<void(Status, std::string)> cb) {
+    db::Pool::instance().client()->execSqlAsync(
+        "SELECT CASE WHEN COALESCE(i.room_issuer_side, 'left') = 'right' THEN 'left' ELSE 'right' END AS side "
+        "FROM space_invites i JOIN couple_members issuer ON (issuer.couple_id, issuer.user_id) = (i.couple_id, i.created_by_user_id) "
+        "WHERE i.code_hash = $2 AND i.revoked_at IS NULL AND i.expires_at > now() AND i.used_count < i.max_uses "
+        "AND NOT EXISTS (SELECT FROM couple_members WHERE user_id = $1::uuid OR (couple_id = i.couple_id AND user_id <> issuer.user_id))",
+        [cb](const drogon::orm::Result &rows) {
+            if (rows.empty()) { cb(makeStatus(Outcome::InviteInvalidOrExpired, "邀请不可用"), ""); return; }
+            cb(makeStatus(Outcome::Ok), rows[0]["side"].as<std::string>());
+        }, [cb](const drogon::orm::DrogonDbException &) { cb(makeStatus(Outcome::Error, "暂时无法读取邀请"), ""); },
+        userId, crypto::sha256Hex(normalizedCode));
 }
 
 // =====================================================================

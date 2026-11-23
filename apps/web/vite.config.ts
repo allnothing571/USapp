@@ -33,8 +33,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'portrait',
-        theme_color: '#FBF7F0',
-        background_color: '#FBF7F0',
+        theme_color: '#F8F0E2',
+        background_color: '#F8F0E2',
         lang: 'zh-CN',
         icons: [
           {
@@ -60,12 +60,13 @@ export default defineConfig({
       injectManifest: {
         // 只预缓存构建产物里的静态外壳。API / 私有媒体永远不在 glob 覆盖范围内，
         // 即便被匹配到，sw.ts 的 NetworkOnly 规则也会先命中。
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,woff2}'],
         // 排除项说明：
         // - sw.js 自身不能进预缓存清单，否则每次更新都会自引用。
         // - icons/、apple-touch-icon.png、favicon.svg 由 includeAssets 单独登记，
         //   这里排除是为了避免同一 URL 在预缓存清单里出现两次。
         globIgnores: [
+          '**/ui-art/**', // Route illustrations load on entry and use the existing static-image runtime cache.
           '**/avatars/**', // Public placeholder art is cached on first use, not private API data or an all-art precache.
           '**/sw.js',
           '**/sw.js.map',

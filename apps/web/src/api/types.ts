@@ -53,6 +53,7 @@ export interface Invite {
 
 /** `#/components/schemas/CreatedInvite`：`code` / `invite_url` 只在创建响应里出现一次。 */
 export interface CreatedInvite extends Invite {
+  room_issuer_side?: 'left' | 'right'
   code: string
   invite_url: string
 }
@@ -920,6 +921,9 @@ export type ServerErrorCode =
   | 'ALBUM_PROPOSAL_DECIDED'
   | 'AVATAR_ITEM_NOT_FOUND'
   | 'AVATAR_VERSION_CONFLICT'
+  | 'SHARED_ROOM_VERSION_CONFLICT'
+  | 'ROOM_FURNITURE_OWNED'
+  | 'SHARED_GARDEN_DATE_CHANGED'
   | 'AVATAR_ASSET_INVALID'
   | 'AVATAR_STARTER_INVALID'
   | 'AVATAR_ALREADY_OWNED'

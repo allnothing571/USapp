@@ -69,6 +69,15 @@ const routes: RouteRecordRaw[] = [
     path: '/avatar/wardrobe', name: 'avatar-wardrobe', component: () => import('@/views/AvatarView.vue'), props: { tab: 'wardrobe' },
   },
   {
+    path: '/shared-room', name: 'shared-room', component: () => import('@/views/SharedRoomView.vue'),
+  },
+  {
+    path: '/shared-garden', name: 'shared-garden', component: () => import('@/views/SharedGardenView.vue'),
+  },
+  {
+    path: '/shared-garden/history', name: 'shared-garden-history', component: () => import('@/views/GardenHistoryView.vue'),
+  },
+  {
     // 阶段 1 M3-B：一次性任务的发布与列表（需要已认证且已加入空间，走下方全局守卫）。
     path: '/tasks',
     name: 'tasks',
@@ -173,7 +182,7 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: to => to.hash === '#room-position-title' ? { el: '#room-position-title' } : { top: 0 },
 })
 
 function routeNameOf(name: unknown): string {

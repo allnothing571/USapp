@@ -45,11 +45,13 @@ class AvatarLoadoutService {
     struct Request {
         int expectedVersion = 0;
         std::array<std::optional<std::string>, 6> slots;  // lowercase uuid or empty, in kSlots order
+        std::string characterGender; // Empty preserves a previously saved choice.
+        std::optional<bool> hairHidden;
     };
 
     static AvatarLoadoutService &instance();
 
-    // Exactly {expected_version, slots:{the six keys}}; each slot a uuid string or null.
+    // {expected_version, slots:{the six keys}, character_gender?}; each slot a uuid string or null.
     static bool parse(const Json::Value &body, Request &out, std::string &message);
     // Server-side SHA-256 of the canonical requested terms (never of a resolved default).
     static std::string fingerprint(const Request &request);

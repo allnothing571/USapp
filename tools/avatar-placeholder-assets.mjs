@@ -56,20 +56,27 @@ if (process.argv.includes('--write')) {
 }
 // Checking is always performed, including on the enrollment-output path.
 const actual = JSON.parse(await readFile(manifestPath, 'utf8'))
-if (JSON.stringify(actual) !== JSON.stringify(manifest)) throw new Error('Manifest differs from the deterministic placeholder definition')
+if (actual.placeholder && (JSON.stringify(actual.base) !== JSON.stringify(manifest.base) ||
+  JSON.stringify(actual.assets) !== JSON.stringify(assets))) throw new Error('Manifest differs from the deterministic placeholder definition')
+const activeFiles = [actual.base, ...Object.values(actual.bases ?? {}), ...Object.values(actual.assets).flatMap(a => Object.values(a.layers))]
+for (const entry of activeFiles) {
+  if (path.basename(entry.file) !== entry.file) throw new Error('Invalid manifest filename')
+  if (hash(await readFile(path.join(directory, entry.file))) !== entry.sha256) throw new Error(`Manifest hash mismatch: ${entry.file}`)
+}
 const files = (await readdir(directory)).sort()
-if (JSON.stringify(files) !== JSON.stringify(Object.keys(shapes).sort())) throw new Error('Unexpected placeholder file set')
+const expectedFiles = [...new Set([...Object.keys(shapes), ...activeFiles.map(f => f.file)])].sort()
+if (JSON.stringify(files) !== JSON.stringify(expectedFiles)) throw new Error('Unexpected avatar file set')
 for (const [filename, shape] of Object.entries(shapes)) {
   const bytes = await readFile(path.join(directory, filename))
   if (hash(bytes) !== hash(svg(shape))) throw new Error(`Asset changed: ${filename}`)
   if (/<(?:script|foreignObject|image)\b|\b(?:href|onload|onclick)=|https?:\/\/(?!www\.w3\.org\/2000\/svg)/i.test(bytes.toString())) throw new Error('External or executable SVG content')
 }
-for (const [key, a] of Object.entries(assets)) {
+for (const [key, a] of Object.entries(actual.assets)) {
   const expected = a.category === 'hair' ? ['back', 'front', 'front_under_hat'] : ['main']
   if (!categories.includes(a.category) || JSON.stringify(Object.keys(a.layers).sort()) !== JSON.stringify(expected)) throw new Error(`Invalid layer set: ${key}`)
 }
 if (process.argv.includes('--registry-json')) {
   // Prepared enrollment data ONLY. Loading it is a separate owner-controlled maintenance step.
-  console.log(JSON.stringify(Object.entries(assets).map(([asset_key, a]) => ({ asset_key, ...a,
+    console.log(JSON.stringify(Object.entries(actual.assets).map(([asset_key, a]) => ({ asset_key, ...a,
     layers: Object.fromEntries(Object.entries(a.layers).map(([k, v]) => [k, v.sha256])) })), null, 2))
-} else console.log(`PLACEHOLDER ASSETS OK: ${files.length} files, ${Object.keys(assets).length} registry entries; no database touched`)
+} else console.log(`AVATAR ASSETS OK: ${files.length} files, ${Object.keys(actual.assets).length} registry entries; no database touched`)

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: USapp API（阶段 0 冻结契约 + 阶段 1 增量）
-  version: 0.60.0
+  version: 0.67.0
   description: |
     阶段 0 只覆盖：登录与会话、注册白名单、情侣空间创建与邀请加入、
     当前用户/空间查询、健康检查、管理后台骨架。
@@ -1650,6 +1650,15 @@ paths:
       tags: [space]
       operationId: createSpaceInvite
       summary: 生成情侣邀请（调用者必须是空间成员）
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [room_issuer_side]
+              properties:
+                room_issuer_side: { $ref: '#/components/schemas/RoomSide' }
       description: |
         - 邀请码明文只在创建响应中返回一次，数据库只保存 SHA-256。
         - 空间已满（2 名成员）时返回 409 `SPACE_FULL`。
@@ -1687,6 +1696,27 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/v1/invites/{code}/preview:
+    get:
+      tags: [space]
+      operationId: previewRoomInvitation
+      summary: Show the recipient their room side before joining
+      security: [{ CookieSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/InviteCode'
+      responses:
+        '200':
+          description: Available invitation for a caller without a space
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room_side]
+                properties:
+                  room_side: { $ref: '#/components/schemas/RoomSide' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/invites/{code}/accept:
     post:
@@ -2175,13 +2205,248 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AvatarCatalogResponse' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/v1/shared-room:
+    get:
+      operationId: getSharedRoom
+      summary: Read the current space's layout and a consenting partner's appearance
+      security: [{ CookieSession: [] }]
+      responses:
+        '200':
+          description: Shared room snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedRoom' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: saveSharedRoom
+      summary: Replace the room layout if the expected version still matches
+      security: [{ CookieSession: [] }]
+      description: Requires same-origin session and CSRF. Furniture kinds and coordinates must be unique within one layout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_version, layout]
+              properties:
+                expected_version: { type: integer, minimum: 0, maximum: 999999999 }
+                layout:
+                  type: array
+                  maxItems: 4
+                  items: { $ref: '#/components/schemas/SharedRoomPlacement' }
+      responses:
+        '200':
+          description: Layout saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { type: integer, minimum: 1, maximum: 1000000000 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: SHARED_ROOM_VERSION_CONFLICT. Read the latest layout before another save.
+        '503':
+          description: RESULT_UNKNOWN. Read the room to confirm what was saved.
+
+  /api/v1/shared-room/positions:
+    get:
+      operationId: getRoomPositions
+      summary: Read your room side and the pending swap, if any
+      security: [{ CookieSession: [] }]
+      responses:
+        '200':
+          description: Current room positions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomPositions' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: changeRoomPosition
+      summary: Request, accept, decline or cancel a room swap
+      description: Same-origin and CSRF required. Repeat the same id and action to confirm an uncertain result.
+      security: [{ CookieSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomPositionAction' }
+      responses:
+        '200':
+          description: Action confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomPositionAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503':
+          description: RESULT_UNKNOWN. Retry the original action or read positions.
+
+  /api/v1/shared-room/furniture/purchases:
+    post:
+      operationId: buyRoomFurniture
+      summary: Purchase a furniture entitlement for the current space
+      description: Debits the caller's sunshine once. Both members can place the item after purchase. Retry an unconfirmed result with the same key and item.
+      security: [{ CookieSession: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{16,128}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [item]
+              properties:
+                item: { type: string, enum: [bookshelf, armchair, vase] }
+      responses:
+        '200':
+          description: Purchase confirmed or replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item, owned]
+                properties:
+                  item: { type: string, enum: [bookshelf, armchair, vase] }
+                  owned: { const: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: ROOM_FURNITURE_OWNED, INSUFFICIENT_BALANCE or IDEMPOTENCY_KEY_REUSED.
+        '503':
+          description: RESULT_UNKNOWN. Confirm with the same purchase key.
+
+  /api/v1/shared-room/live:
+    get:
+      operationId: connectSharedRoom
+      summary: Subscribe to room invalidation and opt-in presence over WebSocket
+      description: Requires an authenticated member and exact public Origin. Server text frames are ready, room-changed, peer-online and peer-not-visible. Layout updates use the versioned PUT. Connections are scoped to the current API process.
+      security: [{ CookieSession: [] }]
+      parameters:
+        - in: query
+          name: presence
+          required: false
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '101':
+          description: WebSocket upgrade. Unauthorized upgrades are closed before any application data is sent.
+
+  /api/v1/shared-room/avatar-sharing:
+    put:
+      operationId: setSharedRoomAvatarSharing
+      summary: Set the caller's room appearance consent. Defaults to false.
+      security: [{ CookieSession: [] }]
+      description: Requires same-origin session and CSRF.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SharedRoomAvatarSharing' }
+      responses:
+        '200':
+          description: Consent saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedRoomAvatarSharing' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: RESULT_UNKNOWN. Read the room to confirm what was saved.
+
+  /api/v1/shared-garden:
+    get:
+      operationId: getSharedGarden
+      summary: Get the current space's plant progress and today's watering status
+      security: [{ CookieSession: [] }]
+      description: The watering date uses Asia/Shanghai. Reads do not create a plant or a watering record.
+      responses:
+        '200':
+          description: Shared plant progress
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedGarden' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/shared-garden/history:
+    get:
+      operationId: getSharedGardenMonth
+      summary: Read the daily watering flags for one Beijing calendar month
+      security: [{ CookieSession: [] }]
+      parameters:
+        - name: month
+          in: query
+          schema: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+          description: Defaults to the current Beijing month. Future months are refused.
+      responses:
+        '200':
+          description: Daily flags ordered oldest first, excluding future dates
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedGardenMonth' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/shared-garden/watering:
+    put:
+      operationId: waterSharedGarden
+      summary: Record the current member's watering for the displayed date
+      description: Requires the same-origin session and CSRF. The same member and date count once. A date that has elapsed is refused even if it was previously watered.
+      security: [{ CookieSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SharedGardenWatering' }
+      responses:
+        '200':
+          description: Watering for this member and date is confirmed
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedGardenWatering' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: SHARED_GARDEN_DATE_CHANGED. Read the current garden before watering again.
+        '503':
+          description: RESULT_UNKNOWN. Read the current garden to check whether watering was recorded.
+
   /api/v1/avatar:
     get:
       tags: [avatar]
       operationId: getMyAvatar
       summary: The caller's appearance (Phase 4 B1, 0.42.0; saved loadouts B3, 0.44.0)
       description: |
-        Only ever the caller's own appearance; no route reads another user's, and only a session is needed. Before the caller
+        This route returns only the caller's own appearance, and only a session is needed. Before the caller
         has saved a loadout, source is starter_defaults (B1): the current starter configuration's item for each required slot
         and null for the optional slots; with no configuration yet, complete is false, starter_version is null and every slot
         is null. B3 (additive): loadout_version is 0 then. After a save, source is saved_loadout: the latest saved items'
@@ -5307,6 +5572,7 @@ components:
         - type: object
           required: [code, invite_url]
           properties:
+            room_issuer_side: { $ref: '#/components/schemas/RoomSide' }
             code:
               type: string
               description: 明文邀请码，仅在创建响应中出现一次
@@ -5782,6 +6048,124 @@ components:
       required: [items]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/AvatarItem' } }
+    SharedRoomPlacement:
+      type: object
+      additionalProperties: false
+      required: [item, x, y]
+      properties:
+        item: { type: string, enum: [table, lamp, plant, rug, bookshelf, armchair, vase] }
+        x: { type: integer, minimum: 0, maximum: 3 }
+        y: { type: integer, minimum: 0, maximum: 2 }
+
+    SharedRoomAvatarSharing:
+      type: object
+      additionalProperties: false
+      required: [share_avatar]
+      properties:
+        share_avatar: { type: boolean }
+
+    RoomSide:
+      type: string
+      enum: [left, right]
+
+    RoomPositions:
+      type: object
+      required: [side, paired, pending]
+      properties:
+        side: { $ref: '#/components/schemas/RoomSide' }
+        paired: { type: boolean }
+        pending:
+          type: [object, 'null']
+          required: [id, incoming]
+          properties:
+            id: { type: string, format: uuid }
+            incoming: { type: boolean }
+
+    RoomPositionAction:
+      type: object
+      additionalProperties: false
+      required: [id, action]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, enum: [request, accept, decline, cancel] }
+
+    SharedRoom:
+      type: object
+      required: [version, layout, share_avatar, partner_appearance, furniture, positions]
+      properties:
+        positions: { $ref: '#/components/schemas/RoomPositions' }
+        version: { type: integer, minimum: 0, maximum: 1000000000 }
+        layout:
+          type: array
+          description: One placement per furniture kind and per cell.
+          maxItems: 4
+          items: { $ref: '#/components/schemas/SharedRoomPlacement' }
+        share_avatar: { type: boolean }
+        furniture:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            required: [item, price, owned]
+            properties:
+              item: { type: string, enum: [bookshelf, armchair, vase] }
+              price: { type: integer, minimum: 1, maximum: 9999 }
+              owned: { type: boolean }
+        partner_appearance:
+          oneOf:
+            - $ref: '#/components/schemas/AvatarAppearanceResponse/properties/appearance'
+            - type: 'null'
+
+    SharedGardenWatering:
+      type: object
+      additionalProperties: false
+      required: [watering_date]
+      properties:
+        watering_date: { type: string, format: date }
+
+    SharedGarden:
+      type: object
+      additionalProperties: false
+      required: [watering_date, total_waterings, watered_today, partner_watered_today]
+      properties:
+        watering_date: { type: string, format: date }
+        total_waterings: { type: integer, format: int64, minimum: 0 }
+        watered_today: { type: boolean }
+        partner_watered_today: { type: boolean }
+        recent_waterings:
+          description: Seven Beijing dates, newest first including today. A day without a watering is included with false flags.
+          type: array
+          minItems: 7
+          maxItems: 7
+          items:
+            type: object
+            additionalProperties: false
+            required: [watering_date, watered, partner_watered]
+            properties:
+              watering_date: { type: string, format: date }
+              watered: { type: boolean }
+              partner_watered: { type: boolean }
+
+    SharedGardenMonth:
+      type: object
+      additionalProperties: false
+      required: [month, current_month, days]
+      properties:
+        month: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+        current_month: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+        days:
+          type: array
+          minItems: 1
+          maxItems: 31
+          items:
+            type: object
+            additionalProperties: false
+            required: [watering_date, watered, partner_watered]
+            properties:
+              watering_date: { type: string, format: date }
+              watered: { type: boolean }
+              partner_watered: { type: boolean }
+
     AvatarAppearanceResponse:
       type: object
       additionalProperties: false
@@ -5792,6 +6176,8 @@ components:
           additionalProperties: false
           required: [source, complete, starter_version, loadout_version, slots]
           properties:
+            character_gender: { type: string, enum: [female, male], description: Saved avatar styling choice. Omitted if unset. }
+            hair_hidden: { type: boolean, description: Hide the equipped hair to render the bald base. Omitted if unset. }
             source: { type: string, enum: [starter_defaults, saved_loadout], description: 'saved_loadout is B3 (0.44.0).' }
             loadout_version: { type: integer, minimum: 0, description: 'B3: the latest saved version; 0 before the first save.' }
             complete: { type: boolean }
@@ -5823,6 +6209,8 @@ components:
       additionalProperties: false
       required: [expected_version, slots]
       properties:
+        character_gender: { type: string, enum: [female, male], description: Preserve existing styling when omitted. }
+        hair_hidden: { type: boolean, description: Preserve existing visibility when omitted. Does not change the equipped item. }
         expected_version: { type: integer, minimum: 0, description: The caller's current loadout version; 0 before the first save. }
         slots:
           allOf:
@@ -5846,6 +6234,8 @@ components:
             version: { type: integer, minimum: 1 }
             slots: { $ref: '#/components/schemas/AvatarLoadoutSlots' }
             requested: { $ref: '#/components/schemas/AvatarLoadoutSlots' }
+            character_gender: { type: string, enum: [female, male] }
+            hair_hidden: { type: boolean }
             starter_version: { type: [integer, 'null'], minimum: 1, description: The configuration the defaults came from; null when none was needed. }
             created_at: { type: string, format: date-time }
         current:

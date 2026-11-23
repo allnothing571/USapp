@@ -41,6 +41,7 @@ import { useWalletStore } from './wallet'
 import { useAvatarStore } from './avatar'
 import { useAchievementsStore } from './achievements'
 import { useExportStore } from './export'
+import { useRoomDraftStore } from './room-draft'
 
 /** 会话状态机：unknown（未引导）→ anonymous | authenticated。 */
 export type SessionStatus = 'unknown' | 'anonymous' | 'authenticated'
@@ -98,6 +99,7 @@ export const useSessionStore = defineStore('session', () => {
     useTasksStore().reset()
     useRewardsStore().reset()
     useHomeStore().reset()
+    useRoomDraftStore().reset()
     useMessagesStore().reset()
     useTaskReactionsStore().reset()
     useAnniversariesStore().reset()
@@ -122,6 +124,8 @@ export const useSessionStore = defineStore('session', () => {
   function applyBootstrap(payload: SessionBootstrap): void {
     if (!payload.authenticated || user.value?.id !== payload.user?.id) {
       resetIdentityScoped(!(payload.authenticated && user.value === null))
+    } else if (space.value?.id !== payload.space?.id) {
+      useRoomDraftStore().reset()
     }
     csrfToken.value = payload.csrf_token
     setCsrfToken(payload.csrf_token)

@@ -3,6 +3,8 @@ import { request } from './client'
 
 export const AVATAR_SLOTS = ['hair', 'clothes', 'expression', 'hat', 'handheld', 'accessory'] as const
 export type AvatarSlot = typeof AVATAR_SLOTS[number]
+export type CharacterGender = 'female' | 'male'
+export const isCharacterGender = (v: unknown): v is CharacterGender => v === 'female' || v === 'male'
 export type SlotIds = Record<AvatarSlot, string | null>
 export interface AvatarAsset {
   key: string; format: 'svg' | 'webp'; layers: string[]; covers_hair_top: boolean | null
@@ -13,6 +15,8 @@ export interface AvatarItem {
   price_sunshine: number | null; asset: AvatarAsset; listed?: boolean
 }
 export interface Appearance {
+  character_gender?: CharacterGender
+  hair_hidden?: boolean
   source: 'starter_defaults' | 'saved_loadout'; complete: boolean; starter_version: number | null
   loadout_version: number; slots: Record<AvatarSlot, AvatarItem | null>
 }
@@ -25,10 +29,10 @@ export interface PurchaseResponse {
   replayed: boolean; purchase: AvatarPurchase
   current: { sunshine_balance: number; item: AvatarItem & { listed: boolean } }
 }
-export interface LoadoutRequest { expected_version: number; slots: SlotIds }
+export interface LoadoutRequest { expected_version: number; slots: SlotIds; character_gender?: CharacterGender; hair_hidden?: boolean }
 export interface LoadoutResponse {
   replayed: boolean
-  loadout: { id: string; version: number; slots: SlotIds; requested: SlotIds; starter_version: number | null; created_at: string }
+  loadout: { id: string; version: number; slots: SlotIds; requested: SlotIds; starter_version: number | null; created_at: string; character_gender?: CharacterGender; hair_hidden?: boolean }
   current: { appearance: Appearance } | null
 }
 export const emptySlots = (): SlotIds => ({ hair: null, clothes: null, expression: null, hat: null, handheld: null, accessory: null })
@@ -57,6 +61,8 @@ export function isAvatarItem(v: unknown, listed = false): v is AvatarItem {
 }
 export function isAppearance(v: unknown): v is Appearance {
   if (!object(v) || (v.source !== 'starter_defaults' && v.source !== 'saved_loadout') || typeof v.complete !== 'boolean' ||
+    (v.character_gender !== undefined && !isCharacterGender(v.character_gender)) ||
+    (v.hair_hidden !== undefined && typeof v.hair_hidden !== 'boolean') ||
     !integer(v.loadout_version) || !(v.starter_version === null || integer(v.starter_version, 1)) || !object(v.slots) || Object.keys(v.slots).length !== 6) return false
   const slots = v.slots
   if (!AVATAR_SLOTS.every(s => slots[s] === null || (isAvatarItem(slots[s]) && slots[s].category === s))) return false
@@ -85,7 +91,8 @@ export function isLoadoutResponse(v: unknown, captured: LoadoutRequest): v is Lo
   if (!object(v) || typeof v.replayed !== 'boolean' || !object(v.loadout)) return false
   const l = v.loadout
   if (!uuid(l.id) || l.version !== captured.expected_version + 1 || !isSlotIds(l.slots) || !isSlotIds(l.requested) ||
-    !sameSlots(l.requested, captured.slots) || !date(l.created_at) || !(l.starter_version === null || integer(l.starter_version, 1))) return false
+    !sameSlots(l.requested, captured.slots) || l.character_gender !== captured.character_gender || l.hair_hidden !== captured.hair_hidden ||
+    !date(l.created_at) || !(l.starter_version === null || integer(l.starter_version, 1))) return false
   const resolved = l.slots
   if (!AVATAR_SLOTS.every(s => captured.slots[s] === null && ['hair', 'clothes', 'expression'].includes(s)
     ? uuid(resolved[s]) : resolved[s] === captured.slots[s])) return false

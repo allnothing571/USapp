@@ -19,7 +19,7 @@ using Result = AvatarLoadoutService::Result;
 
 #define AL_TS(x) "to_char(" x " AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')"
 
-const char *kSaveSql = "SELECT usapp_avatar_loadout_save($1::uuid, $2, $3, $4::integer, $5::jsonb)::text AS r";
+const char *kSaveSql = "SELECT public.usapp_avatar_loadout_save_with_style($1::uuid, $2, $3, $4::integer, $5::jsonb, NULLIF($6, ''), NULLIF($7, '')::boolean)::text AS r";
 // The immutable facts of one saved loadout.
 const char *kFactsSql =
     "SELECT id::text AS id, version, hair_item_id::text AS hair, clothes_item_id::text AS clothes, "
@@ -63,7 +63,19 @@ AvatarLoadoutService &AvatarLoadoutService::instance() {
 
 bool AvatarLoadoutService::parse(const Json::Value &body, Request &out, std::string &message) {
     message = "请求必须恰好包含 expected_version 与 slots（hair、clothes、expression、hat、handheld、accessory）";
-    if (!body.isObject() || body.size() != 2u || !body.isMember("expected_version") || !body.isMember("slots")) return false;
+    if (!body.isObject() || !body.isMember("expected_version") || !body.isMember("slots") ||
+        body.size() != 2u + body.isMember("character_gender") + body.isMember("hair_hidden")) return false;
+    out.characterGender.clear();
+    out.hairHidden.reset();
+    if (body.isMember("hair_hidden")) {
+        if (!body["hair_hidden"].isBool()) { message = "光头选项无效"; return false; }
+        out.hairHidden = body["hair_hidden"].asBool();
+    }
+    if (body.isMember("character_gender")) {
+        const auto &gender = body["character_gender"];
+        if (gender != "male" && gender != "female") { message = "角色外形无效"; return false; }
+        out.characterGender = gender.asString();
+    }
     const auto &v = body["expected_version"];
     if (!v.isInt() || v.isBool() || v.asInt64() < 0 || v.asInt64() > 1000000) {
         message = "expected_version 必须是非负整数";
@@ -97,7 +109,10 @@ std::string AvatarLoadoutService::requestedJson(const Request &request) {
 }
 
 std::string AvatarLoadoutService::fingerprint(const Request &request) {
-    return crypto::sha256Hex("avatar:loadout:v1:" + std::to_string(request.expectedVersion) + ":" + requestedJson(request));
+    auto terms = "avatar:loadout:v1:" + std::to_string(request.expectedVersion) + ":" + requestedJson(request);
+    if (!request.characterGender.empty()) terms += ":" + request.characterGender;
+    if (request.hairHidden.has_value()) terms += *request.hairHidden ? ":hair_hidden=true" : ":hair_hidden=false";
+    return crypto::sha256Hex(terms);
 }
 
 void AvatarLoadoutService::save(const std::string &userId, const std::string &key, const Request &request, Callback cb, Fault fault) {
@@ -124,13 +139,14 @@ void AvatarLoadoutService::save(const std::string &userId, const std::string &ke
             finish(std::move(r));
         });
     };
-    const auto params = std::make_shared<std::array<std::string, 5>>(std::array<std::string, 5>{
-        userId, key, fingerprint(request), std::to_string(request.expectedVersion), requestedJson(request)});
+    const auto params = std::make_shared<std::array<std::string, 7>>(std::array<std::string, 7>{
+        userId, key, fingerprint(request), std::to_string(request.expectedVersion), requestedJson(request), request.characterGender,
+        request.hairHidden.has_value() ? (*request.hairHidden ? "true" : "false") : ""});
     db::TxScope::beginAsync(
         [params, fault, finish, withAppearance](const std::shared_ptr<db::TxScope> &tx) {
             tx->tx().execSqlAsync(
                 kSaveSql,
-                [tx, fault, finish, withAppearance](const drogon::orm::Result &rows) {
+                [tx, fault, finish, withAppearance, params](const drogon::orm::Result &rows) {
                     Json::Value answer;
                     if (rows.size() != 1u || !parseJson(rows[0]["r"].as<std::string>(), answer)) {
                         finish(fail(Outcome::Error, "服务内部错误"));
@@ -159,7 +175,7 @@ void AvatarLoadoutService::save(const std::string &userId, const std::string &ke
                     }
                     tx->tx().execSqlAsync(
                         kFactsSql,
-                        [tx, finish, withAppearance, replay](const drogon::orm::Result &facts) {
+                        [tx, finish, withAppearance, replay, params](const drogon::orm::Result &facts) {
                             Result r;
                             try {
                                 if (facts.size() != 1u) throw std::runtime_error("facts");
@@ -178,6 +194,8 @@ void AvatarLoadoutService::save(const std::string &userId, const std::string &ke
                                 loadout["starter_version"] = row["starter_version"].isNull() ? Json::Value(Json::nullValue)
                                                                                             : Json::Value(row["starter_version"].as<int>());
                                 loadout["created_at"] = row["created_at"].as<std::string>();
+                                if (!(*params)[5].empty()) loadout["character_gender"] = (*params)[5];
+                                if (!(*params)[6].empty()) loadout["hair_hidden"] = (*params)[6] == "true";
                                 r.body["replayed"] = replay;
                                 r.body["loadout"] = loadout;
                             } catch (const std::exception &) {
@@ -200,7 +218,7 @@ void AvatarLoadoutService::save(const std::string &userId, const std::string &ke
                     finish(fail(Outcome::Error, "服务内部错误"));
                     tx->fail("avatar loadout save failed");
                 },
-                (*params)[0], (*params)[1], (*params)[2], (*params)[3], (*params)[4]);
+                (*params)[0], (*params)[1], (*params)[2], (*params)[3], (*params)[4], (*params)[5], (*params)[6]);
         },
         // Otherwise (a failed begin or commit, or the test fault) nothing is known about the commit.
         [finish](const std::string &) { finish(fail(Outcome::ResultUnknown, "结果未确认，请使用相同的请求重试")); });

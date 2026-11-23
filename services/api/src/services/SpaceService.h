@@ -100,7 +100,9 @@ class SpaceService {
     void getSpaceForMember(const std::string &userId, const std::string &spaceId, SpaceCallback cb);
 
     // ---- 邀请 ----
-    void createInvite(const std::string &userId, InviteCreatedCallback cb);
+    void createInvite(const std::string &userId, InviteCreatedCallback cb, const std::string &issuerSide = {});
+    void previewInvite(const std::string &userId, const std::string &normalizedCode,
+                       std::function<void(Status, std::string)> cb);
     // 列出当前空间的邀请（只含元数据）。用户不在任何空间时 SpaceNotFound。
     void listInvites(const std::string &userId, InviteListCallback cb);
     void revokeInvite(const std::string &userId, const std::string &inviteId, StatusCallback cb);

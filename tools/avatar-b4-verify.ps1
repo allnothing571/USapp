@@ -47,6 +47,7 @@ try {
     if ($sw.Contains('avatars/')) { throw 'Avatar images unexpectedly appeared in the service-worker precache.' }
     $manifest = [IO.File]::ReadAllText((Join-Path $web 'src/assets/avatar-manifest.json')) | ConvertFrom-Json
     $files = @($manifest.base)
+    if ($manifest.bases) { foreach ($base in $manifest.bases.PSObject.Properties) { $files += $base.Value } }
     foreach ($entry in $manifest.assets.PSObject.Properties) { foreach ($layer in $entry.Value.layers.PSObject.Properties) { $files += $layer.Value } }
     foreach ($file in $files) {
         if ((Get-FileHash -LiteralPath (Join-Path $output ('avatars/' + $file.file)) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256) { throw 'Built asset hash mismatch.' }

@@ -105,13 +105,14 @@ function backToEmail(): void {
 </script>
 
 <template>
-  <section class="page">
-    <header>
+  <section class="page login-page">
+    <header class="login-welcome">
+      <img src="/ui-art/login.jpg" alt="" class="page-illustration">
       <h1 class="page__title">我们的小空间</h1>
-      <p class="page__subtitle">只有你们两个人的地方，先登录一下。</p>
+      <p class="page__subtitle">用邮箱验证码登录你们的小空间。</p>
     </header>
 
-    <div class="card">
+    <div class="card login-form">
       <template v-if="step === 'email'">
         <h2 class="card__title">第一步 · 邮箱</h2>
         <form class="stack" @submit.prevent="sendCode()">

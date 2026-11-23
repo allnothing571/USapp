@@ -248,14 +248,16 @@ describe('avatar UI and public-art boundary', () => {
   it('shows starters without purchase controls and unlisted owned items as wearable', async () => {
     vi.mocked(getOwnedAvatars).mockResolvedValue({ items: [{ purchase: purchase(), current_item: { ...hat(), listed: false } }], next_cursor: null })
     const w = view('wardrobe'); await flushPromises()
-    expect(w.get('[data-test="avatar-slot-hat"]').text()).toContain('已下架，仍可穿戴')
     expect(w.get('[data-test="avatar-slot-hair"]').text()).toContain('免费初始')
+    await w.get('[data-test="avatar-category-hat"]').trigger('click')
+    expect(w.get('[data-test="avatar-slot-hat"]').text()).toContain('已下架，仍可穿戴')
     expect(w.get('[data-test="avatar-slot-hat"]').text()).not.toContain('装扮99')
   })
   it('does not offer unowned paid items in the wardrobe', async () => {
     const w = view('wardrobe'); await flushPromises()
-    expect(w.get('[data-test="avatar-slot-hat"]').text()).not.toContain(hat().name)
     expect(w.get('[data-test="avatar-slot-hair"]').text()).toContain(hair().name)
+    await w.get('[data-test="avatar-category-hat"]').trigger('click')
+    expect(w.get('[data-test="avatar-slot-hat"]').text()).not.toContain(hat().name)
   })
   it('keeps the known unlisted flag when the equipped item read omits that optional field', async () => {
     vi.mocked(getAvatarCatalog).mockResolvedValue({ items: [hair(), clothes(), expression()] })
@@ -263,6 +265,7 @@ describe('avatar UI and public-art boundary', () => {
     const a = appearance(1); a.slots.hat = hat()
     vi.mocked(getAvatarAppearance).mockResolvedValue({ appearance: a })
     const w = view('wardrobe'); await flushPromises()
+    await w.get('[data-test="avatar-category-hat"]').trigger('click')
     expect(w.get('[data-test="avatar-slot-hat"]').text()).toContain('已下架，仍可穿戴')
   })
   it('does not submit account A\'s confirmation after switching identity', async () => {
@@ -272,23 +275,85 @@ describe('avatar UI and public-art boundary', () => {
     await w.get('[data-test="avatar-confirm-buy"]').trigger('click'); await flushPromises()
     expect(purchaseAvatar).not.toHaveBeenCalled()
   })
+  it('tries on a shop item without purchasing it or changing the saved appearance', async () => {
+    const w = view(); await flushPromises()
+    await w.get('[data-test="avatar-category-hat"]').trigger('click')
+    await w.get(`[data-test="avatar-try-${id(4)}"]`).trigger('click')
+    expect(w.get('.avatar-stage').text()).toContain(hat().name)
+    expect(w.get(`[data-test="avatar-try-${id(4)}"]`).attributes('aria-pressed')).toBe('true')
+    expect(purchaseAvatar).not.toHaveBeenCalled()
+    expect(saveAvatarLoadout).not.toHaveBeenCalled()
+    expect(useAvatarStore().appearance?.slots.hat).toBeNull()
+  })
   it('preview changes are local; saving sends six slots with the captured base', async () => {
     vi.mocked(getOwnedAvatars).mockResolvedValue({ items: [{ purchase: purchase(), current_item: { ...hat(), listed: true } }], next_cursor: null })
-    const w = view('wardrobe'); await flushPromises(); await w.get('[data-test="avatar-slot-hat"]').setValue(id(4))
+    const w = view('wardrobe'); await flushPromises()
+    await w.get('[data-test="avatar-category-hat"]').trigger('click')
+    await w.get(`[data-test="avatar-wear-${id(4)}"]`).trigger('click')
     expect(saveAvatarLoadout).not.toHaveBeenCalled()
     const req: LoadoutRequest = { expected_version: 0, slots: { hair: id(1), clothes: id(2), expression: id(3), hat: id(4), handheld: null, accessory: null } }
     const current = appearance(1); current.slots.hat = hat(); vi.mocked(saveAvatarLoadout).mockResolvedValueOnce(loadoutReceipt(req, current))
     await w.get('[data-test="avatar-save"]').trigger('click'); await flushPromises()
     expect(saveAvatarLoadout).toHaveBeenCalledWith(req, expect.any(String)); expect(w.text()).toContain('第 1 版形象保存已确认')
   })
+  it('previews a role independently and saves it with the same six equipped slots', async () => {
+    const w = view('wardrobe'); await flushPromises()
+    await w.get('[data-test="avatar-gender-male"]').trigger('click')
+    expect(w.get('[data-test="avatar-gender-male"]').attributes('aria-pressed')).toBe('true')
+    const layers = w.get('.avatar-stage .avatar-layers')
+    expect(layers.attributes('data-gender')).toBe('male')
+    expect(layers.classes()).toContain('avatar-layers--focus-head')
+    await w.get('[data-test="avatar-category-clothes"]').trigger('click')
+    expect(layers.classes()).not.toContain('avatar-layers--focus-head')
+    await w.get('[data-test="avatar-category-expression"]').trigger('click')
+    expect(layers.classes()).toContain('avatar-layers--focus-head')
+    expect(saveAvatarLoadout).not.toHaveBeenCalled()
+    const req: LoadoutRequest = { expected_version: 0, character_gender: 'male',
+      slots: { hair: id(1), clothes: id(2), expression: id(3), hat: null, handheld: null, accessory: null } }
+    vi.mocked(saveAvatarLoadout).mockResolvedValueOnce(loadoutReceipt(req, { ...appearance(1), character_gender: 'male' }))
+    await w.get('[data-test="avatar-save"]').trigger('click'); await flushPromises()
+    expect(saveAvatarLoadout).toHaveBeenCalledWith(req, expect.any(String))
+    expect(useAvatarStore().appearance?.character_gender).toBe('male')
+  })
+  it('shows a clean bald preview and saves it without removing the equipped hair item', async () => {
+    const curl = { ...hair(), id: id(8), asset: { ...hair().asset, key: 'hair.placeholder_wave.v1' } }
+    vi.mocked(getAvatarCatalog).mockResolvedValueOnce({ items: [hair(), curl, clothes(), expression(), hat()] })
+    const w = view('wardrobe'); await flushPromises()
+    await w.get('[data-test="avatar-gender-male"]').trigger('click')
+    const stage = w.get('.avatar-stage')
+    expect(stage.get('[data-layer="body"]').attributes('src')).toBe('/avatars/' + manifest.bases.male.file)
+    expect(stage.get('[data-layer="hair:front"]').attributes('src')).toBe(itemThumbnail(hair()))
+    expect(w.get(`[data-test="avatar-wear-${id(1)}"] img`).attributes('src')).toBe(itemThumbnail(hair()))
+    expect(w.get('[data-test="avatar-bald"] img').attributes('src')).toBe('/avatars/' + manifest.bases.male.file)
+    await w.get('[data-test="avatar-bald"]').trigger('click')
+    expect(stage.findAll('[data-layer^="hair:"]')).toHaveLength(0)
+    expect(saveAvatarLoadout).not.toHaveBeenCalled()
+    const req: LoadoutRequest = { expected_version: 0, character_gender: 'male', hair_hidden: true,
+      slots: { hair: id(1), clothes: id(2), expression: id(3), hat: null, handheld: null, accessory: null } }
+    vi.mocked(saveAvatarLoadout).mockResolvedValueOnce(loadoutReceipt(req, { ...appearance(1), character_gender: 'male', hair_hidden: true }))
+    await w.get('[data-test="avatar-save"]').trigger('click'); await flushPromises()
+    expect(saveAvatarLoadout).toHaveBeenCalledWith(req, expect.any(String))
+    expect(useAvatarStore().appearance?.hair_hidden).toBe(true)
+    await w.get(`[data-test="avatar-wear-${curl.id}"]`).trigger('click')
+    expect(stage.get('[data-layer="hair:front"]').attributes('src')).toBe(itemThumbnail(curl))
+  })
+  it('uses catalog thumbnails and offers the hair category to a male appearance', async () => {
+    vi.mocked(getAvatarAppearance).mockResolvedValueOnce({ appearance: { ...appearance(), character_gender: 'male' } })
+    const w = view(); await flushPromises()
+    const card = w.get(`[data-test="avatar-try-${id(1)}"]`)
+    expect(card.findAll('img')).toHaveLength(1)
+    expect(card.get('img').attributes('src')).toBe(itemThumbnail(hair()))
+    expect(card.attributes('data-category')).toBe('hair')
+    expect(card.attributes('data-art-format')).toBe(hair().asset.format)
+  })
   it('preserves a conflict draft and requires explicit acceptance of a newer base', async () => {
-    const w = view('wardrobe'); await flushPromises(); await w.get('[data-test="avatar-slot-hair"]').setValue('')
+    const w = view('wardrobe'); await flushPromises(); await w.get('[data-test="avatar-use-default"]').trigger('click')
     vi.mocked(saveAvatarLoadout).mockRejectedValueOnce(new ApiError('AVATAR_VERSION_CONFLICT', 'stale', 409))
     await w.get('[data-test="avatar-save"]').trigger('click'); await flushPromises()
     vi.mocked(getAvatarAppearance).mockResolvedValueOnce({ appearance: appearance(4) })
     await w.get('[data-test="avatar-review-current"]').trigger('click'); await flushPromises()
     expect(w.get('[data-test="avatar-save"]').attributes('disabled')).toBeDefined()
-    expect(w.get('[data-test="avatar-slot-hair"]').element).toHaveProperty('value', '')
+    expect(w.get('[data-test="avatar-use-default"]').attributes('aria-pressed')).toBe('true')
     await w.get('[data-test="avatar-accept-base"]').trigger('click')
     expect(w.get('[data-test="avatar-save"]').attributes('disabled')).toBeUndefined()
   })
@@ -303,7 +368,9 @@ describe('avatar UI and public-art boundary', () => {
   it('home has character navigation and distinguishes a fallback from confirmed current appearance', async () => {
     const w = mount(AvatarHome, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } }); wrappers.push(w)
     expect(w.text()).toContain('当前形象未确认'); expect(w.text()).toContain('装扮商店')
-    await useAvatarStore().loadAppearance(); await flushPromises(); expect(w.text()).toContain('当前形象 · 占位素材')
+    await useAvatarStore().loadAppearance(); await flushPromises()
+    expect(w.text()).toContain('当前形象')
+    expect(w.find('.avatar-layers img[data-layer="body"]').exists()).toBe(true)
   })
   it('back hair is behind the body and a covering hat chooses under-hat hair', () => {
     const slots = appearance().slots; slots.hat = hat()
@@ -311,6 +378,20 @@ describe('avatar UI and public-art boundary', () => {
     expect(names.indexOf('hair:back')).toBeLessThan(names.indexOf('body'))
     expect(names).toContain('hair:front_under_hat'); expect(names).not.toContain('hair:front')
     expect(names.indexOf('hair:front_under_hat')).toBeLessThan(names.indexOf('hat:main'))
+  })
+  it('flips the whole layer stack by room side independently of gender and composes head focus', async () => {
+    const w = mount(AvatarFigure, { props: { slots: appearance().slots, character: 'right', gender: 'female', focus: 'head' } })
+    wrappers.push(w)
+    const layers = w.get('.avatar-layers')
+    expect(layers.classes()).toContain('avatar-layers--flipped')
+    expect(layers.classes()).toContain('avatar-layers--focus-head')
+    expect(layers.attributes('data-gender')).toBe('female')
+    const body = () => layers.get('[data-layer="body"]').attributes('src')
+    expect(body()).toBe('/avatars/' + manifest.bases.female.file)
+    await w.setProps({ character: 'left', gender: 'male', focus: 'full' })
+    expect(layers.classes()).toEqual(['avatar-layers'])
+    expect(body()).toBe('/avatars/' + manifest.bases.male.file)
+    expect(figureLayers(emptyFigureSlots()).layers[0]?.src).toBe('/avatars/' + manifest.base.file)
   })
   it('unknown keys do not become URLs; image failure renders a stable fallback without changing saved ids', async () => {
     const unknown = { ...hair(), asset: { ...hair().asset, key: 'hair.unknown.v1' } }
@@ -321,20 +402,29 @@ describe('avatar UI and public-art boundary', () => {
     expect(w.text()).toContain('部分素材不可用')
     await w.get('img').trigger('error'); expect(slots.hair.id).toBe(id(1)); expect(w.text()).toContain('保存的装扮没有改变')
   })
-  it('checks actual bundled file hashes and safe SVG contents against the enrollment manifest', () => {
-    const files = [manifest.base, ...Object.values(manifest.assets).flatMap(a => Object.values(a.layers))]
-    expect(files).toHaveLength(14)
+  it('checks manifest hashes, shared WebP canvas and safe legacy SVG contents', () => {
+    const files = [manifest.base, ...Object.values(manifest.bases), ...Object.values(manifest.assets).flatMap(a => Object.values(a.layers))]
+    expect(new Set(files.map(f => f.file)).size).toBe(14)
     for (const f of files) {
       const bytes = readFileSync(resolve('public/avatars', f.file))
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(f.sha256)
-      expect(bytes.toString()).toContain('viewBox="0 0 512 512"')
-      expect(bytes.toString()).not.toMatch(/<script|foreignObject|\bonload=/i)
+      if (f.file.endsWith('.webp')) {
+        expect(bytes.toString('ascii', 0, 4)).toBe('RIFF')
+        expect(bytes.toString('ascii', 8, 16)).toBe('WEBPVP8L')
+        const header = bytes.readUInt32LE(21)
+        expect(bytes[20]).toBe(0x2f)
+        expect([1 + (header & 0x3fff), 1 + ((header >>> 14) & 0x3fff)]).toEqual(manifest.canvas)
+        expect((header >>> 28) & 1).toBe(1)
+      } else {
+        expect(bytes.toString()).toContain('viewBox="0 0 512 512"')
+        expect(bytes.toString()).not.toMatch(/<script|foreignObject|\bonload=/i)
+      }
     }
   })
   it('keeps private avatar APIs outside the service-worker cache and public art outside precache', async () => {
     const { isCacheableRequest } = await import('@/pwa/cache-policy')
     for (const p of ['/api/v1/avatar', '/api/v1/avatar/owned', '/api/v1/avatar/catalog', '/api/v1/avatar/purchases']) expect(isCacheableRequest(p, 'GET')).toBe(false)
-    expect(isCacheableRequest('/avatars/base.placeholder.v1.svg', 'GET', { sameOrigin: true, destination: 'image' })).toBe(true)
+    expect(isCacheableRequest('/avatars/' + manifest.base.file, 'GET', { sameOrigin: true, destination: 'image' })).toBe(true)
     expect(readFileSync(resolve('vite.config.ts'), 'utf8')).toContain("'**/avatars/**'")
   })
 })

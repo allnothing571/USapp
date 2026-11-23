@@ -45,6 +45,8 @@ class InviteController : public drogon::HttpController<InviteController> {
                   AuthFilter::classTypeName());
     ADD_METHOD_TO(InviteController::acceptInvite, "/api/v1/invites/{code}/accept",
                   drogon::Post, AuthFilter::classTypeName());
+    ADD_METHOD_TO(InviteController::preview, "/api/v1/invites/{code}/preview",
+                  drogon::Get, AuthFilter::classTypeName());
     METHOD_LIST_END
 
     // ------------------------------------------------------------------
@@ -75,7 +77,7 @@ class InviteController : public drogon::HttpController<InviteController> {
     }
 
     // ------------------------------------------------------------------
-    // 生成邀请。没有请求体：有效期与最大使用次数由服务端常量决定
+    // 生成邀请。站位可选（兼容旧客户端）；有效期与最大使用次数由服务端常量决定
     // （SpaceService::kInviteTtlSeconds / kInviteMaxUses），客户端不能要求
     // 更长的有效期。
     // ------------------------------------------------------------------
@@ -85,10 +87,21 @@ class InviteController : public drogon::HttpController<InviteController> {
         if (!ctrl::requireUser(req, callback, userId)) {
             return;
         }
+        std::string side;
+        if (!req->body().empty()) {
+            Json::Value input;
+            if (!ctrl::parseBody(req, callback, input)) return;
+            if (!input.isObject() || input.size() != 1 ||
+                (input["room_issuer_side"] != "left" && input["room_issuer_side"] != "right")) {
+                callback(ctrl::fail(ErrorCode::ValidationError, "请选择左侧或右侧", req));
+                return;
+            }
+            side = input["room_issuer_side"].asString();
+        }
         const AppConfig &cfg = AppConfig::instance();
         SpaceService::instance().createInvite(
             userId,
-            [req, callback, &cfg](SpaceService::Status status,
+            [req, callback, &cfg, side](SpaceService::Status status,
                                   const std::string &rawCode,
                                   const std::string &inviteId,
                                   const std::string &expiresAt) {
@@ -99,8 +112,9 @@ class InviteController : public drogon::HttpController<InviteController> {
                 Json::Value body(Json::objectValue);
                 body["invite"] =
                     ctrl::createdInviteJson(inviteId, expiresAt, rawCode, cfg.publicOrigin);
+                if (!side.empty()) body["invite"]["room_issuer_side"] = side;
                 callback(jsonResponse(body, 201));
-            });
+            }, side);
     }
 
     // ------------------------------------------------------------------
@@ -153,6 +167,23 @@ class InviteController : public drogon::HttpController<InviteController> {
                 body["space"] = ctrl::spaceJson(space);
                 callback(jsonResponse(body, 200));
             });
+    }
+
+    void preview(const drogon::HttpRequestPtr &req,
+                 std::function<void(const drogon::HttpResponsePtr &)> &&callback, std::string rawCode) {
+        std::string userId;
+        if (!ctrl::requireUser(req, callback, userId)) return;
+        const auto normalized = SpaceService::normalizeInviteCode(rawCode);
+        if (normalized.empty()) {
+            callback(ctrl::fail(ErrorCode::InviteInvalidOrExpired, "邀请无效或已过期", req));
+            return;
+        }
+        SpaceService::instance().previewInvite(userId, normalized, [req, callback](SpaceService::Status status, std::string side) {
+            if (!status.ok()) { callback(ctrl::spaceFailure(status, req)); return; }
+            Json::Value body(Json::objectValue);
+            body["room_side"] = side;
+            callback(jsonResponse(body, 200));
+        });
     }
 };
 

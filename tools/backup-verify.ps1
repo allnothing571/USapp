@@ -1,12 +1,16 @@
-# Owned disposable signed/encrypted database-backup and independent restore probe; 54 frozen migrations through 0053.
+# Owned disposable signed/encrypted database backup and independent restore probe; V1 or explicit V2 rehearsal.
 # Synthetic source and fresh restore target only; application CONNECT remains denied.
 param(
  [string]$Image = 'sha256:83afaf6179c2f2c80c73ee209f907773f33a67deac1610905924ed17e66cbfb1',
  [switch]$JournalDrill,
  [switch]$UpgradeFrom0024,
- [string]$RollbackImage
+ [string]$RollbackImage,
+ [switch]$SharedRoomUpgrade
 )
 $ErrorActionPreference = 'Stop'
+if ($SharedRoomUpgrade -and ($UpgradeFrom0024 -or $RollbackImage -or $JournalDrill)) {
+    throw 'Run -SharedRoomUpgrade separately.'
+}
 if ($RollbackImage -and !$UpgradeFrom0024) { throw '-RollbackImage requires -UpgradeFrom0024.' }
 if ($RollbackImage -and $JournalDrill) { throw 'Run release pairing and journal recovery separately.' }
 $repo = Split-Path -Parent $PSScriptRoot
@@ -14,7 +18,10 @@ Set-Location -LiteralPath $repo
 $expected0047 = '75d67669f3ac1ac31bb11fa7fc4282662710fa9137fd5a26729c7fc716edf132'
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repo 'database/migrations/0047_achievements.sql')).Hash.ToLowerInvariant() -ne $expected0047) { throw 'Frozen 0047 bytes changed.' }
 $migrations = @(Get-ChildItem -LiteralPath (Join-Path $repo 'database/migrations') -Filter '*.sql')
-if ($migrations.Count -ne 54 -or ($migrations | Sort-Object Name | Select-Object -Last 1).BaseName -ne '0053_memory_decision_timestamp') { throw 'Unexpected migration set.' }
+$latestJournalDrill = $JournalDrill -and $migrations.Count -eq 63
+$expectedCount = if ($SharedRoomUpgrade -or $latestJournalDrill) { 63 } else { 54 }
+$expectedLast = if ($SharedRoomUpgrade -or $latestJournalDrill) { '0062_avatar_layer_refresh' } else { '0053_memory_decision_timestamp' }
+if ($migrations.Count -ne $expectedCount -or ($migrations | Sort-Object Name | Select-Object -Last 1).BaseName -cne $expectedLast) { throw 'Unexpected migration set.' }
 foreach($frozenLine in [IO.File]::ReadAllLines((Join-Path $repo 'database/frozen-through-0048.sha256'))) {
  $parts=$frozenLine.Split(' ');$frozenPath=Join-Path $repo ('database/migrations/'+$parts[0]);
  if((Get-FileHash -Algorithm SHA256 -LiteralPath $frozenPath).Hash.ToLowerInvariant() -ne $parts[1]){throw 'Frozen pre-0049 migration changed.'}
@@ -65,12 +72,98 @@ function Assert-Owned([string]$Id) {
 function Summarize([string]$Label, [string[]]$Lines) {
     $Lines | Where-Object { $_ -match '断言|RESULT|\[FAIL\]|\[CRASH\]|Subprocess aborted|SIGSEGV|^E1_LARGE|^E1_LOSS|slot held' } | ForEach-Object { Write-Output ($Label + ': ' + $_) }
 }
-function Apply([string]$LogName,[string]$MigrationDirectory='') {
+function Apply([string]$LogName,[string]$MigrationDirectory='', [string]$DatabaseRoot=(Join-Path $repo 'database')) {
     $arguments = @{ Mode = 'Docker'; Database = 'usapp_test'; User = 'postgres'; Password = $env:ISO_SUPERUSER_PASSWORD; ComposeFile = $compose; EnvFile = $envFile }
     if($MigrationDirectory){$arguments.MigrationsDir=$MigrationDirectory}else{$arguments.InitRoles=$true}
-    & (Join-Path $repo 'database/apply.ps1') @arguments *> (Join-Path $work $LogName)
+    & (Join-Path $DatabaseRoot 'apply.ps1') @arguments *> (Join-Path $work $LogName)
     if ($LASTEXITCODE -ne 0) { throw ('Migration runner failed: ' + $LogName) }
     Assert-Owned $pg
+}
+function Test-SharedRoomUpgrade {
+    $commit = '15d94a9032d2bd4965399b26c2119ae29219d8bf'
+    $ref = & git rev-parse --verify 'v1-candidate-20261120^{commit}'
+    if ($LASTEXITCODE -ne 0 -or $ref -cne $commit) { throw 'Frozen V1 tag is missing or has moved.' }
+    $archive = Join-Path $work 'v1.zip'
+    & git archive --format=zip ("--output="+$archive) $commit database services/api
+    if ($LASTEXITCODE -ne 0) { throw 'Could not export the frozen V1 source.' }
+    $v1 = Join-Path $work 'v1'
+    Expand-Archive -LiteralPath $archive -DestinationPath $v1
+    $v1Database = Join-Path $v1 'database'
+    $v1Files = @(Get-ChildItem -LiteralPath (Join-Path $v1Database 'migrations') -Filter '*.sql' | Sort-Object Name)
+    if ($v1Files.Count -ne 54) { throw 'Expected exactly 54 frozen V1 migrations.' }
+    $v1Hashes = @($v1Files | ForEach-Object { $_.Name + ' ' + (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() })
+    if (($v1Hashes -join ',') -cne (($migrationHashes | Select-Object -First 54) -join ',')) { throw 'V2 changed frozen V1 migrations.' }
+
+    function Check-MigrationLedger([string[]]$Hashes) {
+        Assert-Owned $pg
+        $rows = @(D @('exec',$pg,'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test',
+            '-c','SELECT version,checksum FROM schema_migrations ORDER BY version'))
+        $expected = @($Hashes | ForEach-Object { $_.Replace('.sql ','|') })
+        if (($rows -join ',') -cne ($expected -join ',')) { throw 'Installed migration checksums differ.' }
+    }
+    function Build-ReleaseApi([string]$Name,[string]$SourceRoot) {
+        $source = '/tmp/' + $Name
+        $build = $source + '-build'
+        [void](D @('exec',$compiler,'mkdir','-p',$source))
+        [void](D @('cp',(Join-Path $SourceRoot 'services/api/src'),($compiler+':'+$source+'/src')))
+        [void](D @('cp',(Join-Path $SourceRoot 'services/api/CMakeLists.txt'),($compiler+':'+$source+'/CMakeLists.txt')))
+        [void](D @('exec',$compiler,'cmake','-S',$source,'-B',$build,'-DUSAPP_BUILD_TESTS=OFF'))
+        [void](D @('exec',$compiler,'timeout','900','cmake','--build',$build,'--target','usapp_api','-j','2'))
+        $binary = Join-Path $work ($Name + '-usapp_api')
+        [void](D @('cp',($compiler+':'+$build+'/usapp_api'),$binary))
+        Write-Host ("BUILD_$Name SHA256 " + (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant())
+        return $binary
+    }
+    $script:compiler = @(D @('run','-d','--pull','never','--label',('usapp.j2b='+$project),
+        '--network','none','--entrypoint','sleep',$Image,'2400'))[-1]
+    Assert-Owned $compiler
+    $v1Binary = Build-ReleaseApi 'V1' $v1
+    $v2Binary = Build-ReleaseApi 'V2' $repo
+
+    Apply 'v1-apply.log' -DatabaseRoot $v1Database
+    Check-MigrationLedger $v1Hashes
+    [void](D @('cp',(Join-Path $repo 'database/tests/upgrade_0024_fixture.sql'),($pg+':/tmp/v1-fixture.sql')))
+    [void](D @('exec',$pg,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test','-f','/tmp/v1-fixture.sql'))
+    $fingerprint = LegacyFingerprint $pg 'usapp_test'
+    [void](D @('cp',(Join-Path $repo 'database/tests/shared_room_upgrade_sessions.sql'),($pg+':/tmp/v1-sessions.sql')))
+    [void](D @('exec',$pg,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test','-f','/tmp/v1-sessions.sql'))
+
+    function Test-ReleaseStage([string]$Stage,[string]$Binary) {
+        $settings = @('-e',('POSTGRES_PASSWORD='+$env:ISO_API_PASSWORD),'-e','SESSION_SECRET','-e','POSTGRES_HOST=postgres',
+            '-e','POSTGRES_DB=usapp_test','-e','POSTGRES_USER=usapp_api','-e','API_PUBLIC_PORT=8080','-e','API_PUBLIC_BIND=127.0.0.1',
+            '-e','PUBLIC_ORIGIN=https://localhost:8443','-e','REGISTRATION_MODE=open','-e','MAIL_MODE=log','-e','MEDIA_ENABLED=false',
+            '-e','MEMORY_PURGE_ENABLED=false','-e','SCHEDULER_ENABLED=false','-e','REMINDERS_ENABLED=false')
+        $id = @(D (@('run','-d','--pull','never','--name',($project+'-'+$Stage),
+            '--label',('usapp.j2b='+$project),'--network',$network) + $settings +
+            @('--mount',('type=bind,source='+$Binary+',target=/release-api,readonly'),
+                '--entrypoint','sh',$Image,'-c','cp /release-api /tmp/release-api && chmod 500 /tmp/release-api && exec /tmp/release-api')))[-1]
+        $script:releaseApis += $id
+        Assert-Owned $id
+        try {
+            $probeDir = Join-Path $repo 'tools/probes'
+            D @('run','--rm','--pull','never','--label',('usapp.j2b='+$project),'--network',('container:'+$id),
+                '--mount',('type=bind,source='+$probeDir+',target=/probes,readonly'),
+                'python:3.12-slim-bookworm','python','-I','/probes/shared-room-upgrade-http.py',$Stage)
+        } catch {
+            D @('logs','--tail','20',$id) | Write-Host
+            throw
+        } finally { [void](D @('stop','--time','5',$id)) }
+    }
+    Test-ReleaseStage 'v1-baseline' $v1Binary
+    Apply 'v2-upgrade.log'
+    Check-MigrationLedger $migrationHashes
+    Apply 'v2-repeat.log'
+    Check-MigrationLedger $migrationHashes
+    Deviations 'after V2 upgrade and repeat'
+    [void](D @('cp',(Join-Path $repo 'database/tests/room_character_positions_test.sql'),($pg+':/tmp/position-tests.sql')))
+    [void](D @('exec',$pg,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test','-f','/tmp/position-tests.sql'))
+    Test-ReleaseStage 'v2-upgraded' $v2Binary
+    Test-ReleaseStage 'v1-rollback' $v1Binary
+    Check-MigrationLedger $migrationHashes
+    Test-ReleaseStage 'v2-resumed' $v2Binary
+    Check-MigrationLedger $migrationHashes
+    if ((LegacyFingerprint $pg 'usapp_test') -cne $fingerprint) { throw 'V1 fixture was changed by the upgrade or application rollback.' }
+    Write-Output "SHARED_ROOM_RELEASE_PAIR_PASSED migrations=54->$expectedCount->$expectedCount legacy_fixture=preserved"
 }
 function Test-ReleasePair {
     $oldImageId = @(D @('image','inspect',$RollbackImage,'--format','{{.Id}}'))[-1]
@@ -165,7 +258,31 @@ function NewJointObjectBackup {
     })
     [IO.File]::WriteAllText((Join-Path $source 'manifest.json'),(ConvertTo-Json -InputObject $manifest -Compress),$utf8)
 }
+function ConfirmJointObjectRestorePreparation {
+    Assert-Owned $restorePg
+    $query = @'
+WITH latest AS (
+    SELECT generation, journal_id FROM public.deletion_recovery_attempts ORDER BY generation DESC LIMIT 1
+)
+SELECT public.usapp_recovery_closed()
+   AND NOT has_database_privilege('usapp_api',current_database(),'CONNECT')
+   AND NOT has_database_privilege('usapp_push',current_database(),'CONNECT')
+   AND EXISTS (
+       SELECT 1 FROM latest a
+       JOIN public.deletion_recovery_manifests m USING (generation)
+       JOIN public.deletion_recovery_verifications v USING (generation)
+       WHERE m.payload->'head'->>'journal_id' = a.journal_id::text
+         AND m.payload->'head'->>'hash' = v.head_hash
+         AND m.payload->'head'->>'seq' = v.head_seq::text
+   )
+'@
+    $observed = @(D @('exec',$restorePg,'psql','-X','-At','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_restore_probe','-c',$query))
+    return $observed.Count -eq 1 -and $observed[0] -ceq 't'
+}
+
 function InvokeJointRestore([string]$ArchiveSha256) {
+    if (ConfirmJointObjectRestorePreparation) { throw 'Object restore should require a verified journal checkpoint.' }
+    Write-Output 'JOINT_RESTORE_UNVERIFIED_CHECKPOINT_REFUSED'
     $source=Join-Path $work 'synthetic-object-backup'
     $manifest=@(Get-Content -LiteralPath (Join-Path $source 'manifest.json') -Raw | ConvertFrom-Json)
     $prior=@(JointInventory $restorePg 'usapp_restore_probe')
@@ -190,6 +307,7 @@ function InvokeJointRestore([string]$ArchiveSha256) {
     }finally{
         Remove-Item Env:USAPP_TEST_MAINT_CONNINFO
     }
+    if (!(ConfirmJointObjectRestorePreparation)) { throw 'Object restore requires a verified closed target.' }
     $after=@(JointInventory $restorePg 'usapp_restore_probe')
     if($after.Count -ne 2 -or $after[0] -cne ($manifest[0].inventory+'|t') -or
        $after[1] -cne ($manifest[1].inventory+'|f')){throw 'Journal quarantine must exclude exactly the deleted memory object.'}
@@ -210,9 +328,7 @@ function InvokeJointRestore([string]$ArchiveSha256) {
     }
     if((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $output $retained)).Hash -cne $manifest[1].sha256 -or
        @(Get-ChildItem -LiteralPath $output -File).Count -ne 1 -or (Test-Path -LiteralPath (Join-Path $output $withheld))){throw 'Object restore output mismatch.'}
-    $gate=@(D @('exec',$restorePg,'psql','-X','-At','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_restore_probe','-c',
-        "SELECT public.usapp_recovery_closed() AND NOT has_database_privilege('usapp_api',current_database(),'CONNECT') AND NOT has_database_privilege('usapp_push',current_database(),'CONNECT')"))
-    if($gate.Count -ne 1 -or $gate[0] -cne 't'){throw 'Restore target serving gate changed.'}
+    if (!(ConfirmJointObjectRestorePreparation)) { throw 'Restore target preparation or serving gate changed.' }
     Write-Output 'JOINT_RESTORE_PASSED; pre-deletion media=2; copied=1; withheld=1; serving_allowed=false'
 }
 try {
@@ -273,6 +389,11 @@ networks:
     $identity = @(D @('exec',$pg,'psql','-X','-At','-U','postgres','-d','usapp_test','-c','SELECT current_database()'))[-1]
     if ($identity -ne 'usapp_test') { throw 'Wrong database.' }
     Write-Output ("DISPOSABLE DATABASE: container $pg, database $identity, internal network $network")
+
+    if ($SharedRoomUpgrade) {
+        Test-SharedRoomUpgrade
+        return
+    }
 
     if($UpgradeFrom0024){
         $baseline=Join-Path $work 'baseline-migrations'

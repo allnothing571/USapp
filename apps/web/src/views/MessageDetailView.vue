@@ -80,7 +80,8 @@ async function retry(): Promise<void> {
 
 <template>
   <section class="page">
-    <header class="row">
+    <header class="page-heading">
+      <h1 class="page__title">留言详情</h1>
       <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'us' }" data-test="back-to-us">返回留言板</RouterLink>
     </header>
 

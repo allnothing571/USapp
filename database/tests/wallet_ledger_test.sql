@@ -565,7 +565,11 @@ BEGIN
                 TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts;
             -- 0045 adds avatar_purchases referencing wallet_operations: listed last, no CASCADE.
             ELSIF to_regclass('public.avatar_purchases') IS NOT NULL THEN
-                TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, avatar_purchases, admin_redemption_cancellations;
+                IF to_regclass('public.room_furniture_purchases') IS NOT NULL THEN
+                    TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, avatar_purchases, admin_redemption_cancellations, room_furniture_purchases;
+                ELSE
+                    TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, avatar_purchases, admin_redemption_cancellations;
+                END IF;
             -- 0023 adds the push dispatch chain referencing notifications: listed last, no CASCADE.
             ELSIF to_regclass('public.push_deliveries') IS NOT NULL THEN
                 TRUNCATE wallet_ledger_entries, wallet_operations, wallet_accounts, task_completions, task_progress_events, reward_redemptions, reward_redemption_fulfillments, reward_redemption_events, notifications, notification_reads, notification_intents, task_reactions, push_deliveries, push_attempts, push_attempt_observations, push_attempt_expiries, push_delivery_outcomes, push_subscription_revocations, admin_redemption_cancellations;

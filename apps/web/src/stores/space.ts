@@ -107,8 +107,8 @@ export const useSpaceStore = defineStore('space', () => {
   }
 
   /** POST /api/v1/spaces/current/invites —— 明文邀请码只在返回值里出现一次。 */
-  async function createInvite(): Promise<CreatedInvite> {
-    const response = await run(() => spaceApi.createSpaceInvite())
+  async function createInvite(side: 'left' | 'right'): Promise<CreatedInvite> {
+    const response = await run(() => spaceApi.createSpaceInvite(side))
     lastCreatedInvite.value = response.invite
     invites.value = [...invites.value, response.invite]
     return response.invite

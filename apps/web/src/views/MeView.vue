@@ -246,6 +246,9 @@ async function logout(): Promise<void> {
     </div>
 
     <div class="card" data-test="invites">
+      <RouterLink v-if="space?.member_count === 1" class="btn btn--soft" :to="{ name: 'space-create' }">
+        选择站位并发出邀请
+      </RouterLink>
       <h2 class="card__title">可用邀请</h2>
       <ul v-if="spaceStore.availableInvites.length" class="list">
         <li v-for="invite in spaceStore.availableInvites" :key="invite.id" class="list__item">

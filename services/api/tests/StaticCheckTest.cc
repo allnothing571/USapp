@@ -368,7 +368,7 @@ int main() {
         usapptest::noteStaticAssertion("Text checks only; live startup and routing require owner acceptance.");
         const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
         // 0.4.0（M3-B）与 0.5.0（M3-C1）只新增任务操作；钱包读取保持不变。
-        CHECK_CONTAINS(contract, "version: 0.60.0");
+        CHECK_CONTAINS(contract, "version: 0.67.0");
         CHECK_CONTAINS(contract, "operationId: getWallet");
         CHECK_CONTAINS(contract, "WalletResponse:");
         const std::string controller = readFileContent(
@@ -478,7 +478,7 @@ int main() {
     TEST_CASE("StaticCheck: M3-B task routes, contract 0.4.0+, startup ordering and scope boundaries") {
         usapptest::noteStaticAssertion("（文本检查，不是运行时验证；运行时见 db_gated 与负责人验收）");
         const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
-        CHECK_CONTAINS(contract, "version: 0.60.0");  // M8 additive direct redemption
+        CHECK_CONTAINS(contract, "version: 0.67.0");  // M8 additive direct redemption
         CHECK_CONTAINS(contract, "  /api/v1/tasks:");
         CHECK_CONTAINS(contract, "  /api/v1/tasks/{taskId}:");
         CHECK_CONTAINS(contract, "operationId: createTask");
@@ -586,7 +586,7 @@ int main() {
     TEST_CASE("StaticCheck: M3-C1 completion route, contract 0.5.0 and D32 isolation") {
         usapptest::noteStaticAssertion("（文本检查，不是运行时验证；运行时见 db_gated R1-R9）");
         const std::string contract = readFileContent(repoRoot / "contracts" / "openapi.yaml");
-        CHECK_CONTAINS(contract, "version: 0.60.0");
+        CHECK_CONTAINS(contract, "version: 0.67.0");
         CHECK_CONTAINS(contract, "  /api/v1/tasks/{taskId}/completion:");
         CHECK_CONTAINS(contract, "operationId: completeTask");
         CHECK_CONTAINS(contract, "CompleteTaskResponse:");
@@ -1209,7 +1209,7 @@ int main() {
         CHECK_NOT_CONTAINS(sql, "public.shared_plan_events");
         CHECK_NOT_CONTAINS(sql, "UPDATE public.audit_logs");
         CHECK_NOT_CONTAINS(sql, "GRANT UPDATE ON");
-        // Erasure's one writer and recovery's fixed boolean reader are the narrow definer boundaries.
+        // Keep new definer functions scoped to their own tables and operations.
         for (const auto &entry : std::filesystem::directory_iterator(repoRoot / "database" / "migrations")) {
             const auto name = entry.path().filename();
             if (name == "0039_memory_text_erasure.sql" || name == "0019_notifications.sql") continue;
@@ -1223,6 +1223,63 @@ int main() {
                 CHECK_EQ(text.find("SECURITY DEFINER"), text.rfind("SECURITY DEFINER"));
                 CHECK_ORDER(text, "CREATE FUNCTION public.usapp_recovery_closed()", "SECURITY DEFINER");
                 CHECK_CONTAINS(text, "SET search_path = pg_catalog, pg_temp");
+                continue;
+            }
+            if (name == "0054_shared_room.sql") {
+                const std::string definer = "SECURITY DEFINER";
+                const auto readDefiner = text.find(definer);
+                const auto saveDefiner = text.find(definer, readDefiner + definer.size());
+                const auto shareDefiner = text.find(definer, saveDefiner + definer.size());
+                CHECK(readDefiner != std::string::npos);
+                CHECK(saveDefiner != std::string::npos);
+                CHECK(shareDefiner != std::string::npos);
+                CHECK_EQ(shareDefiner, text.rfind(definer));
+                CHECK_CONTAINS(text, "usapp_shared_room_read(p_user uuid)\nRETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "usapp_shared_room_save(p_user uuid, p_version integer, p_layout jsonb)\nRETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "usapp_shared_room_share(p_user uuid, p_shared boolean)\nRETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "public.usapp_shared_room_share(uuid, boolean) FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "memory_erase");
+                continue;
+            }
+            if (name == "0055_shared_garden.sql") {
+                const std::string definer = "SECURITY DEFINER";
+                const auto first = text.find(definer);
+                const auto second = text.find(definer, first + definer.size());
+                CHECK(first != std::string::npos);
+                CHECK(second != std::string::npos);
+                CHECK_EQ(second, text.rfind(definer));
+                CHECK_CONTAINS(text, "LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "ON CONFLICT (couple_id, watering_date, user_id) DO NOTHING");
+                CHECK_CONTAINS(text, "FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                continue;
+            }
+            if (name == "0056_shared_garden_recent.sql") {
+                CHECK_EQ(text.find("SECURITY DEFINER"), text.rfind("SECURITY DEFINER"));
+                CHECK_CONTAINS(text, "LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "public.usapp_shared_garden_recent(uuid) FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                CHECK_NOT_CONTAINS(text, "INSERT INTO");
+                continue;
+            }
+            if (name == "0057_shared_garden_month.sql") {
+                CHECK_EQ(text.find("SECURITY DEFINER"), text.rfind("SECURITY DEFINER"));
+                CHECK_CONTAINS(text, "LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "public.usapp_shared_garden_month(uuid,text) FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "INSERT INTO");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                continue;
+            }
+            if (name == "0058_room_furniture.sql") {
+                CHECK_CONTAINS(text, "REVOKE ALL ON TABLE public.room_furniture_catalog, public.room_furniture_purchases");
+                CHECK_CONTAINS(text, "CREATE CONSTRAINT TRIGGER room_furniture_debit_guard");
+                CHECK_CONTAINS(text, "CREATE CONSTRAINT TRIGGER room_furniture_ledger_guard");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
                 continue;
             }
             CHECK_NOT_CONTAINS(text, "SECURITY DEFINER");

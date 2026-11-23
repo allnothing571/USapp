@@ -160,6 +160,9 @@ const char *errorCodeToString(ErrorCode code) {
         case ErrorCode::AlbumProposalDecided: return "ALBUM_PROPOSAL_DECIDED";
         case ErrorCode::AvatarItemNotFound: return "AVATAR_ITEM_NOT_FOUND";
         case ErrorCode::AvatarVersionConflict: return "AVATAR_VERSION_CONFLICT";
+        case ErrorCode::SharedRoomVersionConflict: return "SHARED_ROOM_VERSION_CONFLICT";
+        case ErrorCode::RoomFurnitureOwned: return "ROOM_FURNITURE_OWNED";
+        case ErrorCode::SharedGardenDateChanged: return "SHARED_GARDEN_DATE_CHANGED";
         case ErrorCode::AvatarAssetInvalid: return "AVATAR_ASSET_INVALID";
         case ErrorCode::AvatarStarterInvalid: return "AVATAR_STARTER_INVALID";
         case ErrorCode::AvatarAlreadyOwned: return "AVATAR_ALREADY_OWNED";
@@ -316,6 +319,9 @@ int defaultStatusFor(ErrorCode code) {
         case ErrorCode::ReminderTimePassed: return 409;
         case ErrorCode::AvatarItemNotFound: return 404;
         case ErrorCode::AvatarVersionConflict: return 409;
+        case ErrorCode::RoomFurnitureOwned:
+        case ErrorCode::SharedRoomVersionConflict: return 409;
+        case ErrorCode::SharedGardenDateChanged: return 409;
         case ErrorCode::AvatarAssetInvalid:
         case ErrorCode::AvatarStarterInvalid: return 400;
         case ErrorCode::AvatarAlreadyOwned:

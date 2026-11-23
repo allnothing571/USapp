@@ -19,20 +19,20 @@
 .avatar-admin .table-wrap { overflow-x: auto; }
 :root {
   /* —— 暖色底 —— */
-  --us-warm-bg: #f7f3ec;
-  --us-warm-surface: #fffdf9;
-  --us-warm-surface-alt: #f1ebe1;
-  --us-warm-border: #e0d5c4;
+  --us-warm-bg: #f8f0e2;
+  --us-warm-surface: #fffbf3;
+  --us-warm-surface-alt: #f3e7d4;
+  --us-warm-border: #e5d5bf;
   --us-warm-border-strong: #c9b9a1;
 
   /* —— 文字 —— */
-  --us-warm-text: #2e2922;
-  --us-warm-text-muted: #7b7062;
-  --us-warm-text-faint: #a1968a;
+  --us-warm-text: #352c23;
+  --us-warm-text-muted: #695644;
+  --us-warm-text-faint: #766454;
 
   /* —— 强调（陶土橙）—— */
   --us-warm-accent: #c2703a;
-  --us-warm-accent-strong: #9d5628;
+  --us-warm-accent-strong: #793b24;
   --us-warm-accent-soft: rgba(194, 112, 58, 0.12);
 
   /* —— 语义色 —— */

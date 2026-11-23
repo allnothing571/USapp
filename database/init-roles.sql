@@ -519,3 +519,75 @@ BEGIN
   GRANT EXECUTE ON FUNCTION public.usapp_security_notice_source(text,uuid) TO usapp_api;
  END IF;
 END $security_notice_grants$;
+
+-- 43. The shared room is accessible only through its member-scoped functions.
+DO $shared_room_grants$
+BEGIN
+ IF to_regclass('public.shared_rooms') IS NOT NULL THEN
+  REVOKE ALL ON public.shared_rooms, public.shared_room_avatar_choices FROM PUBLIC, usapp_api, usapp_push;
+  REVOKE ALL ON FUNCTION public.usapp_shared_room_read(uuid), public.usapp_shared_room_save(uuid,integer,jsonb),
+    public.usapp_shared_room_share(uuid,boolean) FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_shared_room_read(uuid), public.usapp_shared_room_save(uuid,integer,jsonb),
+    public.usapp_shared_room_share(uuid,boolean) TO usapp_api;
+ END IF;
+END $shared_room_grants$;
+
+-- 44. Watering records are read and written only through member-scoped functions.
+DO $shared_garden_grants$
+BEGIN
+ IF to_regclass('public.shared_garden_waterings') IS NOT NULL THEN
+  REVOKE ALL ON public.shared_garden_waterings FROM PUBLIC, usapp_api, usapp_push;
+  REVOKE ALL ON FUNCTION public.usapp_shared_garden_read(uuid), public.usapp_shared_garden_water(uuid,text) FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_shared_garden_read(uuid), public.usapp_shared_garden_water(uuid,text) TO usapp_api;
+ END IF;
+END $shared_garden_grants$;
+
+DO $shared_garden_recent_grants$
+BEGIN
+ IF to_regprocedure('public.usapp_shared_garden_recent(uuid)') IS NOT NULL THEN
+  REVOKE ALL ON FUNCTION public.usapp_shared_garden_recent(uuid) FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_shared_garden_recent(uuid) TO usapp_api;
+ END IF;
+END $shared_garden_recent_grants$;
+
+DO $shared_garden_month_grants$
+BEGIN
+ IF to_regprocedure('public.usapp_shared_garden_month(uuid,text)') IS NOT NULL THEN
+  REVOKE ALL ON FUNCTION public.usapp_shared_garden_month(uuid,text) FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_shared_garden_month(uuid,text) TO usapp_api;
+ END IF;
+END $shared_garden_month_grants$;
+
+DO $room_furniture_grants$
+BEGIN
+ IF to_regclass('public.room_furniture_purchases') IS NOT NULL THEN
+  REVOKE ALL ON public.room_furniture_catalog, public.room_furniture_purchases FROM PUBLIC, usapp_api, usapp_push;
+  REVOKE ALL ON FUNCTION public.usapp_room_furniture_immutable(), public.usapp_room_furniture_debit_guard(),
+    public.usapp_room_furniture_ledger_guard(), public.usapp_room_furniture_read(uuid),
+    public.usapp_room_furniture_buy(uuid,text,text) FROM PUBLIC, usapp_api, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_room_furniture_read(uuid),
+    public.usapp_room_furniture_buy(uuid,text,text) TO usapp_api;
+ END IF;
+END $room_furniture_grants$;
+
+DO $room_character_grants$
+BEGIN
+ IF to_regclass('public.room_standings') IS NOT NULL THEN
+  REVOKE ALL ON public.avatar_character_choices, public.room_standings, public.room_position_swaps FROM PUBLIC, usapp_api, usapp_push;
+  GRANT SELECT ON public.avatar_character_choices TO usapp_api;
+  REVOKE ALL ON FUNCTION public.usapp_room_initialize_positions(uuid,uuid), public.usapp_room_positions_read(uuid),
+    public.usapp_room_positions_write(uuid,uuid,text), public.usapp_avatar_loadout_save_with_gender(uuid,text,text,integer,jsonb,text)
+    FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_room_initialize_positions(uuid,uuid), public.usapp_room_positions_read(uuid),
+    public.usapp_room_positions_write(uuid,uuid,text), public.usapp_avatar_loadout_save_with_gender(uuid,text,text,integer,jsonb,text)
+    TO usapp_api;
+ END IF;
+END $room_character_grants$;
+
+DO $avatar_bald_grants$
+BEGIN
+ IF to_regprocedure('public.usapp_avatar_loadout_save_with_style(uuid,text,text,integer,jsonb,text,boolean)') IS NOT NULL THEN
+  REVOKE ALL ON FUNCTION public.usapp_avatar_loadout_save_with_style(uuid,text,text,integer,jsonb,text,boolean) FROM PUBLIC, usapp_push;
+  GRANT EXECUTE ON FUNCTION public.usapp_avatar_loadout_save_with_style(uuid,text,text,integer,jsonb,text,boolean) TO usapp_api;
+ END IF;
+END $avatar_bald_grants$;

@@ -17,7 +17,7 @@ def get(path, token=None):
         connection.close()
 
 
-def check(token):
+def wait_ready():
     for _ in range(15):
         try:
             if get("health")[0] == 200:
@@ -27,6 +27,10 @@ def check(token):
         time.sleep(1)
     else:
         raise RuntimeError("Health endpoint did not become ready")
+
+
+def check(token):
+    wait_ready()
 
     if get("wallet")[0] != 401:
         raise RuntimeError("Wallet accepted an anonymous read")

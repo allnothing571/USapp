@@ -3,7 +3,7 @@
  * 创建空间。
  *
  * 流程：POST /api/v1/spaces（**不带请求体**，契约没有声明 requestBody）
- *      → 拿到 space → 立刻 POST /api/v1/spaces/current/invites 生成第一个邀请
+ *      → 拿到 space → 选择自己的站位后生成邀请
  *      → 展示明文邀请码与邀请链接，并提供复制。
  *
  * 明文邀请码只在创建响应里出现这一次，因此必须当场让用户复制走；
@@ -13,6 +13,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { describeError, errorCodeOf } from '@/api/error-messages'
+import { oppositeSide, sideLabel, type RoomSide } from '@/api/shared-room'
 import { useSessionStore } from '@/stores/session'
 import { useSpaceStore } from '@/stores/space'
 
@@ -23,6 +24,7 @@ const router = useRouter()
 const busy = ref(false)
 const errorText = ref('')
 const copied = ref('')
+const issuerSide = ref<RoomSide | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
 const createdInvite = computed(() => spaceStore.lastCreatedInvite)
@@ -63,8 +65,6 @@ async function createSpace(): Promise<void> {
   try {
     const next = await spaceStore.create()
     session.setSpace(next)
-    // 立刻生成第一个邀请，让用户当场就能分享出去。
-    await spaceStore.createInvite()
   } catch (error) {
     const code = errorCodeOf(error)
     if (code === 'SPACE_ALREADY_EXISTS' || code === 'ALREADY_IN_SPACE') {
@@ -82,11 +82,11 @@ async function createSpace(): Promise<void> {
 
 /** 空间已存在但还没有邀请码时，单独生成一个（不会被误当成重新创建空间）。 */
 async function generateInvite(): Promise<void> {
-  if (busy.value) return
+  if (busy.value || !issuerSide.value) return
   busy.value = true
   errorText.value = ''
   try {
-    await spaceStore.createInvite()
+    await spaceStore.createInvite(issuerSide.value)
   } catch (error) {
     errorText.value = describeError(error)
   } finally {
@@ -109,7 +109,7 @@ function goHome(): void {
     <div v-if="!space" class="card">
       <h2 class="card__title">还没有空间</h2>
       <p class="card__hint">
-        创建后会立刻生成一个邀请码，把它发给对方即可加入。空间一旦创建，成员上限为 2 人。
+        创建空间后，选好你在小房间的站位，再生成邀请码。
       </p>
       <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
       <button class="btn btn--block" type="button" :disabled="busy" @click="createSpace()">
@@ -130,10 +130,13 @@ function goHome(): void {
         </dl>
       </div>
 
-      <div class="card">
+      <div v-if="space.member_count < 2" class="card">
         <h2 class="card__title">邀请对方加入</h2>
 
         <template v-if="createdInvite">
+          <p v-if="createdInvite.room_issuer_side" class="card__hint">
+            对方接受后，你在{{ sideLabel(createdInvite.room_issuer_side) }}，对方在{{ sideLabel(oppositeSide(createdInvite.room_issuer_side)) }}。
+          </p>
           <div class="code-box">
             <span class="code-box__value">{{ createdInvite.code }}</span>
             <button
@@ -165,11 +168,19 @@ function goHome(): void {
         </template>
 
         <template v-else>
-          <p class="card__hint">还没有可用的邀请码。</p>
+          <p class="card__hint">选择你想站的一侧。对方加入时会站到另一侧。</p>
+          <div class="invite-positions" role="group" aria-label="你在小房间的位置">
+            <button v-for="side in (['left', 'right'] as const)" :key="side" class="btn btn--soft"
+              type="button" :aria-pressed="issuerSide === side" :disabled="busy" @click="issuerSide = side">
+              {{ sideLabel(side) }}
+              <span v-if="issuerSide === side"> · 我</span>
+              <span v-else-if="issuerSide"> · 对方</span>
+            </button>
+          </div>
           <button
             class="btn btn--block btn--soft"
             type="button"
-            :disabled="busy"
+            :disabled="busy || !issuerSide"
             @click="generateInvite()"
           >
             生成邀请码

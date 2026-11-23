@@ -280,7 +280,7 @@ function archiveDrift(product: RewardProduct): string {
     </div>
 
     <!-- 兑换确认：价格与版本取自点击“兑换”时的快照 -->
-    <div v-if="redeemConfirm" class="card" data-test="redeem-confirm">
+    <div v-if="redeemConfirm" class="card confirmation-card" data-test="redeem-confirm">
       <h2 class="card__title">确认兑换</h2>
       <p v-if="redeemConfirm.mode === 'direct'" class="card__hint">将扣除 <strong>{{ redeemConfirm.price }}</strong> 朵小红花兑换「{{ redeemConfirm.title }}」。扣除后由对方履约。</p>
       <p v-else class="card__hint">申请「{{ redeemConfirm.title }}」，价格 {{ redeemConfirm.price }} 朵小红花。现在不扣款、不预留，待对方同意时扣款。</p>
@@ -293,7 +293,7 @@ function archiveDrift(product: RewardProduct): string {
       </div>
     </div>
 
-    <div v-if="transitionConfirm" class="card" data-test="transition-confirm">
+    <div v-if="transitionConfirm" class="card confirmation-card" data-test="transition-confirm">
       <h2 class="card__title">{{ TRANSITION_LABEL[transitionConfirm.kind] }}</h2>
       <p>「{{ transitionConfirm.title }}」 · {{ transitionConfirm.price }} 朵小红花</p>
       <p v-if="transitionConfirm.kind === 'confirm'" class="card__hint">从申请方扣除快照价格；余额不足时申请保持待确认。</p>

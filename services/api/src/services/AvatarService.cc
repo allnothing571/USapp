@@ -54,12 +54,14 @@ const char *kAppearanceSql =
 // B3: the caller's latest saved loadout, one row per filled slot; no rows when the caller has never saved.
 const char *kSavedLoadoutSql =
     "WITH e AS (SELECT * FROM avatar_loadout_events WHERE user_id = $1::uuid ORDER BY version DESC LIMIT 1) "
-    "SELECT e.version AS loadout_version, e.starter_version AS saved_starter_version, s.slot, " AV_ITEM_COLUMNS
+    "SELECT e.version AS loadout_version, e.starter_version AS saved_starter_version, "
+    "style.gender AS character_gender, style.hair_hidden, s.slot, " AV_ITEM_COLUMNS
     "FROM e CROSS JOIN LATERAL (VALUES ('hair', e.hair_item_id), ('clothes', e.clothes_item_id), ('expression', e.expression_item_id), "
     "('hat', e.hat_item_id), ('handheld', e.handheld_item_id), ('accessory', e.accessory_item_id)) s(slot, item_id) "
     "JOIN avatar_items i ON i.id = s.item_id "
     "JOIN LATERAL (SELECT * FROM avatar_item_revisions x WHERE x.item_id = i.id ORDER BY x.version DESC LIMIT 1) r ON true "
-    "JOIN avatar_assets a ON a.asset_key = r.asset_key";
+    "JOIN avatar_assets a ON a.asset_key = r.asset_key "
+    "LEFT JOIN public.avatar_character_choices style ON style.user_id = e.user_id";
 const char *kStarterSql =
     "SELECT version, hair_item_id::text AS hair, clothes_item_id::text AS clothes, expression_item_id::text AS expression, "
     "admin_user_id::text AS admin_user_id, " AV_TS("created_at") " AS created_at "
@@ -493,6 +495,8 @@ void AvatarService::appearance(const std::string &userId, Callback cb) {
         appearance["source"] = "saved_loadout";
         appearance["complete"] = true;
         appearance["loadout_version"] = rows[0]["loadout_version"].as<int>();
+        if (!rows[0]["character_gender"].isNull()) appearance["character_gender"] = rows[0]["character_gender"].as<std::string>();
+        if (!rows[0]["hair_hidden"].isNull()) appearance["hair_hidden"] = rows[0]["hair_hidden"].as<bool>();
         appearance["starter_version"] =
             rows[0]["saved_starter_version"].isNull() ? Json::Value(Json::nullValue) : Json::Value(rows[0]["saved_starter_version"].as<int>());
         Json::Value slots(Json::objectValue);

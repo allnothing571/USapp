@@ -8,6 +8,7 @@
 #include <json/json.h>
 
 #include <chrono>
+#include <future>
 #include <string>
 #include <thread>
 #include <vector>
@@ -30,7 +31,8 @@ inline size_t collect(char *data, size_t size, size_t count, void *out) {
     static_cast<std::string *>(out)->append(data, size * count);
     return size * count;
 }
-inline Reply call(const std::string &url, const std::string &token, const std::vector<std::string> &headers, const std::string *postBody) {
+inline Reply call(const std::string &url, const std::string &token, const std::vector<std::string> &headers,
+                  const std::string *postBody, const char *method = nullptr) {
     Reply reply;
     CURL *curl = curl_easy_init();
     if (!curl) throw std::runtime_error("no curl handle");
@@ -38,9 +40,11 @@ inline Reply call(const std::string &url, const std::string &token, const std::v
     if (!token.empty()) list = curl_slist_append(list, ("Cookie: __Host-usapp-session=" + token).c_str());
     for (const auto &header : headers) list = curl_slist_append(list, header.c_str());
     if (postBody) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody->c_str());
+    if (method) curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, collect);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply.body);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, collect);
@@ -126,6 +130,90 @@ inline void run(const c::ClientPtr &pool, const std::string &dsn, const std::str
             // P3-1a: no real process has a store. Media routes exist, refuse safely, and expose nothing.
             const std::string csrf = usapp::crypto::randomHex(32);
             const auto mediaToken = commitToken(pool, s.userB, csrf);
+            {
+                const auto room = base + "/api/v1/shared-room";
+                const auto share = room + "/avatar-sharing";
+                const auto memberA = commitToken(pool, s.userA);
+                const auto headers = std::vector<std::string>{"Origin: https://localhost:8443",
+                    "X-CSRF-Token: " + csrf, "Content-Type: application/json"};
+                const std::string draft = R"({"expected_version":0,"layout":[{"item":"lamp","x":1,"y":0}]})";
+                const std::string yes = R"({"share_avatar":true})";
+                const std::string no = R"({"share_avatar":false})";
+                CHECK_EQ(get(room).status, 401L);
+                CHECK_EQ(parsed(get(room, memberA))["version"].asInt(), 0);
+                CHECK(parsed(get(room, memberA))["partner_appearance"].isNull());
+                CHECK_EQ(call(room, mediaToken, {}, &draft, "PUT").status, 403L);
+                CHECK_EQ(call(room, mediaToken, headers, &draft, "PUT").status, 200L);
+                const auto firstLayout = parsed(get(room, memberA));
+                CHECK_EQ(firstLayout["version"].asInt(), 1);
+                CHECK_EQ(firstLayout["layout"][0]["item"].asString(), "lamp");
+                const auto conflict = call(room, mediaToken, headers, &draft, "PUT");
+                CHECK_EQ(conflict.status, 409L);
+                CHECK_EQ(parsed(conflict)["error"]["code"].asString(), "SHARED_ROOM_VERSION_CONFLICT");
+                CHECK_EQ(call(share, mediaToken, headers, &yes, "PUT").status, 200L);
+                const auto exposed = parsed(get(room, memberA));
+                CHECK(exposed["partner_appearance"].isObject());
+                CHECK_FALSE(exposed.isMember("partner_id"));
+                CHECK_EQ(call(share, mediaToken, headers, &no, "PUT").status, 200L);
+                CHECK(parsed(get(room, memberA))["partner_appearance"].isNull());
+                ts::CommittedSpace other;
+                ts::commitSpace(pool, other, true);
+                const auto otherRoom = parsed(get(room, commitToken(pool, other.userA)));
+                CHECK_EQ(otherRoom["version"].asInt(), 0);
+                CHECK(otherRoom["layout"].empty());
+                CHECK(otherRoom["partner_appearance"].isNull());
+
+                const auto garden = base + "/api/v1/shared-garden";
+                const auto water = garden + "/watering";
+                CHECK_EQ(get(garden).status, 401L);
+                const auto initial = parsed(get(garden, memberA));
+                const auto today = initial["watering_date"].asString();
+                CHECK_EQ(today.size(), 10u);
+                CHECK_EQ(initial["total_waterings"].asInt(), 0);
+                CHECK_EQ(initial["recent_waterings"].size(), 7u);
+                CHECK_EQ(initial["recent_waterings"][0]["watering_date"].asString(), today);
+                CHECK_FALSE(initial["recent_waterings"][0]["watered"].asBool());
+                const std::string command = R"({"watering_date":")" + today + R"("})";
+                const std::string stale = R"({"watering_date":"2000-01-01"})";
+                CHECK_EQ(call(water, mediaToken, {}, &command, "PUT").status, 403L);
+                const auto wrongDay = call(water, mediaToken, headers, &stale, "PUT");
+                CHECK_EQ(wrongDay.status, 409L);
+                CHECK_EQ(parsed(wrongDay)["error"]["code"].asString(), "SHARED_GARDEN_DATE_CHANGED");
+                auto first = std::async(std::launch::async, [&]() { return call(water, mediaToken, headers, &command, "PUT"); });
+                const auto second = call(water, mediaToken, headers, &command, "PUT");
+                CHECK_EQ(first.get().status, 200L);
+                CHECK_EQ(second.status, 200L);
+                CHECK_EQ(parsed(second)["watering_date"].asString(), today);
+                const auto partnerGarden = parsed(get(garden, memberA));
+                CHECK_EQ(partnerGarden["total_waterings"].asInt(), 1);
+                CHECK_FALSE(partnerGarden["watered_today"].asBool());
+                CHECK(partnerGarden["partner_watered_today"].asBool());
+                CHECK_FALSE(partnerGarden["recent_waterings"][0]["watered"].asBool());
+                CHECK(partnerGarden["recent_waterings"][0]["partner_watered"].asBool());
+                const auto gardenHistory = garden + "/history";
+                CHECK_EQ(get(gardenHistory).status, 401L);
+                CHECK_EQ(get(gardenHistory + "?month=2000-13", memberA).status, 400L);
+                CHECK_EQ(get(gardenHistory + "?month=9999-01", memberA).status, 400L);
+                const auto month = parsed(get(gardenHistory, memberA));
+                CHECK_EQ(month["month"].asString(), today.substr(0, 7));
+                CHECK_EQ(month["days"].size(), static_cast<unsigned>(std::stoi(today.substr(8))));
+                auto lastDay = month["days"][month["days"].size() - 1];
+                CHECK_EQ(lastDay["watering_date"].asString(), today);
+                CHECK(lastDay["partner_watered"].asBool());
+                CHECK_FALSE(lastDay["watered"].asBool());
+                const auto leapMonth = parsed(get(gardenHistory + "?month=2000-02", memberA));
+                CHECK_EQ(leapMonth["days"].size(), 29u);
+                const auto gardenCsrf = usapp::crypto::randomHex(32);
+                const auto gardenMember = commitToken(pool, s.userA, gardenCsrf);
+                CHECK_EQ(call(water, gardenMember,
+                              {"Origin: https://localhost:8443", "X-CSRF-Token: " + gardenCsrf, "Content-Type: application/json"},
+                              &command, "PUT").status, 200L);
+                const auto shared = parsed(get(garden, mediaToken));
+                CHECK_EQ(shared["total_waterings"].asInt(), 2);
+                CHECK(shared["watered_today"].asBool());
+                CHECK(shared["partner_watered_today"].asBool());
+                CHECK_EQ(parsed(get(garden, commitToken(pool, other.userA)))["total_waterings"].asInt(), 0);
+            }
             const std::string uploads = base + "/api/v1/media/uploads";
             const std::string body = R"({"content_type":"image/png","size_bytes":1000})";
             const std::string unknown = base + "/api/v1/media/" + c::newUuid();

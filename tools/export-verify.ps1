@@ -1,4 +1,4 @@
-# Owned disposable complete backend regression; 54 frozen migrations through 0053.
+# Owned disposable complete backend regression through migration 0058.
 # Checks schema hashes, roles, erasure, rollback SQL controls, build, real API, full CTest and export closure extras.
 param([string]$Image = 'sha256:83afaf6179c2f2c80c73ee209f907773f33a67deac1610905924ed17e66cbfb1')
 $ErrorActionPreference = 'Stop'
@@ -7,7 +7,7 @@ Set-Location -LiteralPath $repo
 $expected0047 = '75d67669f3ac1ac31bb11fa7fc4282662710fa9137fd5a26729c7fc716edf132'
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repo 'database/migrations/0047_achievements.sql')).Hash.ToLowerInvariant() -ne $expected0047) { throw 'Frozen 0047 bytes changed.' }
 $migrations = @(Get-ChildItem -LiteralPath (Join-Path $repo 'database/migrations') -Filter '*.sql')
-if ($migrations.Count -ne 54 -or ($migrations | Sort-Object Name | Select-Object -Last 1).BaseName -ne '0053_memory_decision_timestamp') { throw 'Unexpected migration set.' }
+if ($migrations.Count -ne 63 -or ($migrations | Sort-Object Name | Select-Object -Last 1).BaseName -ne '0062_avatar_layer_refresh') { throw 'Unexpected migration set.' }
 foreach($frozenLine in [IO.File]::ReadAllLines((Join-Path $repo 'database/frozen-through-0048.sha256'))) {
  $parts=$frozenLine.Split(' ');$frozenPath=Join-Path $repo ('database/migrations/'+$parts[0]);
  if((Get-FileHash -Algorithm SHA256 -LiteralPath $frozenPath).Hash.ToLowerInvariant() -ne $parts[1]){throw 'Frozen pre-0049 migration changed.'}
@@ -180,6 +180,12 @@ networks:
     Deviations 'after apply'
     Apply 'repeat-apply.log'
     Deviations 'after repeat'
+    [void](D @('cp',(Join-Path $repo 'database/tests/shared_room_test.sql'),($pg+':/tmp/shared-room-test.sql')))
+    D @('exec',$pg,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test','-f','/tmp/shared-room-test.sql') |
+        Where-Object { $_ -ceq 'SHARED_ROOM_SQL_PASSED' } | Write-Output
+    [void](D @('cp',(Join-Path $repo 'database/tests/shared_garden_test.sql'),($pg+':/tmp/shared-garden-test.sql')))
+    D @('exec',$pg,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','usapp_test','-f','/tmp/shared-garden-test.sql') |
+        Where-Object { $_ -ceq 'SHARED_GARDEN_SQL_PASSED' } | Write-Output
 
     # Rollback-only causal controls and the existing subscription permission/identity ledger, under both roles.
     [void](D @('cp',(Join-Path $repo 'database/tests/push_command_timestamp_test.sql'),($pg + ':/tmp/push-command-clock.sql')))

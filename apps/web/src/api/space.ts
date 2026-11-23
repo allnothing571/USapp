@@ -2,6 +2,7 @@
  * 情侣空间与邀请端点封装。路径、方法、状态码与 contracts/openapi.yaml 严格一致。
  */
 import { request } from './client'
+import { isRoomSide, type RoomSide } from './shared-room'
 import type { InviteListResponse, InviteResponse, Space, SpaceResponse } from './types'
 
 export type { CreatedInvite, Invite, InviteListResponse, InviteResponse, Space, SpaceMember, SpaceResponse } from './types'
@@ -39,8 +40,14 @@ export function listSpaceInvites(): Promise<InviteListResponse> {
  * `POST /api/v1/spaces/current/invites` —— 生成邀请。
  * 邀请码明文只在此响应里出现一次（数据库只存 SHA-256）；空间已满时 409 `SPACE_FULL`。
  */
-export function createSpaceInvite(): Promise<InviteResponse> {
-  return request<InviteResponse>('/api/v1/spaces/current/invites', { method: 'POST' })
+export function createSpaceInvite(side?: RoomSide): Promise<InviteResponse> {
+  return request<InviteResponse>('/api/v1/spaces/current/invites', { method: 'POST', body: side ? { room_issuer_side: side } : undefined })
+}
+
+export async function previewInvite(code: string, signal?: AbortSignal): Promise<RoomSide> {
+  const answer = await request<{ room_side: unknown }>(`/api/v1/invites/${encodeURIComponent(code)}/preview`, { signal })
+  if (!isRoomSide(answer?.room_side)) throw new Error('邀请站位数据无效')
+  return answer.room_side
 }
 
 /** `DELETE /api/v1/spaces/current/invites/{inviteId}` —— 撤销邀请。返回 204。 */

@@ -6,6 +6,7 @@
 // =====================================================================
 
 #include <drogon/HttpController.h>
+#include "SharedRoomLive.h"
 
 #include "http/AuthFilter.h"
 #include "http/ControllerSupport.h"
@@ -63,7 +64,10 @@ class AvatarLoadoutController : public drogon::HttpController<AvatarLoadoutContr
             callback(ctrl::fail(ErrorCode::ValidationError, message, req));
             return;
         }
-        L::instance().save(userId, key, request, [req, callback](L::Result r) { respond(req, callback, r); });
+        L::instance().save(userId, key, request, [req, callback, userId](L::Result r) {
+            if (r.outcome == L::Outcome::Created) notifySharedRoomChange(userId);
+            respond(req, callback, r);
+        });
     }
 };
 

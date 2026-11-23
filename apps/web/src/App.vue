@@ -27,6 +27,7 @@ onMounted(() => {
 
 <template>
   <div class="app-shell">
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
     <OfflineBanner />
 
     <div v-if="needRefresh" class="app-notice app-notice--accent" role="status">
@@ -42,7 +43,7 @@ onMounted(() => {
 
     <NotificationEntry />
 
-    <main class="app-main">
+    <main class="app-main" id="main-content" tabindex="-1">
       <RouterView />
     </main>
 

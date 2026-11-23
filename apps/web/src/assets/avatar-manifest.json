@@ -1,34 +1,44 @@
 {
   "version": 1,
-  "placeholder": true,
+  "placeholder": false,
   "canvas": [
     512,
     512
   ],
   "base": {
-    "file": "base.placeholder.v1.svg",
-    "sha256": "79ef7758522dd6c977a198025e34f210b810b888999792abdef71dfab3138746"
+    "file": "base.v1.webp",
+    "sha256": "45c2798d5022ad282a3bf7c0cddb76b49f68e5ecfa72246a6de8202cd128a90c"
+  },
+  "bases": {
+    "female": {
+      "file": "base.v1.webp",
+      "sha256": "45c2798d5022ad282a3bf7c0cddb76b49f68e5ecfa72246a6de8202cd128a90c"
+    },
+    "male": {
+      "file": "base.v1.webp",
+      "sha256": "45c2798d5022ad282a3bf7c0cddb76b49f68e5ecfa72246a6de8202cd128a90c"
+    }
   },
   "assets": {
     "hair.placeholder_bob.v1": {
       "category": "hair",
       "family": "hair.placeholder_bob",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "back": {
-          "file": "hair.placeholder_bob.v1.back.svg",
-          "sha256": "7e6affcaa86b4e23932daeb95072c8c21924b16b439eb8b7b5908de5192d17c1"
+          "file": "hair.placeholder_bob.v1.back.webp",
+          "sha256": "f819ff9db69564e4960ba7fd5d5fbd61550b90e028673026d2c3df9c69106d85"
         },
         "front": {
-          "file": "hair.placeholder_bob.v1.front.svg",
-          "sha256": "c9d71c88506f0215012d67754a645cfff5d887f9e5c98550fa2e3de745a4ec0f"
+          "file": "hair.placeholder_bob.v1.front.webp",
+          "sha256": "f819ff9db69564e4960ba7fd5d5fbd61550b90e028673026d2c3df9c69106d85"
         },
         "front_under_hat": {
-          "file": "hair.placeholder_bob.v1.front_under_hat.svg",
-          "sha256": "3710803cf0f31edfbd8cde6cfcee03a74697ef9849543142c3b20b82b57c021d"
+          "file": "hair.placeholder_bob.v1.front_under_hat.webp",
+          "sha256": "f122f96de3e722d98f74d86914944e5ceb3d67c8253aae1a93d0043d80346b7d"
         }
       }
     },
@@ -36,21 +46,21 @@
       "category": "hair",
       "family": "hair.placeholder_wave",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "back": {
-          "file": "hair.placeholder_wave.v1.back.svg",
-          "sha256": "02608718352dad09ac232e139420c1101bb4ddec5c2d64b710c6e1c9125075e5"
+          "file": "hair.placeholder_wave.v1.back.webp",
+          "sha256": "0e44f9d35c2ff8ae26b85663c430cc6cdd9471151cff74e0269a848a68bf44d2"
         },
         "front": {
-          "file": "hair.placeholder_wave.v1.front.svg",
-          "sha256": "426abf01b8e04f91d915b8894ca204e2faa9b21adb2529466138a7efcac49a9b"
+          "file": "hair.placeholder_wave.v1.front.webp",
+          "sha256": "d77348631d1458bbf4ccf87cc83a15a2f6856e5aa50a2f35a7b528d8cc8e576c"
         },
         "front_under_hat": {
-          "file": "hair.placeholder_wave.v1.front_under_hat.svg",
-          "sha256": "cc4dd9d91fdd67b025e31df731c709ff58895f34e9401c59fb34e2f2b4098deb"
+          "file": "hair.placeholder_wave.v1.front_under_hat.webp",
+          "sha256": "8a9bf15fe8b8239dfee62170afabd61300131be548e975b595ce64d1a330d3e8"
         }
       }
     },
@@ -58,13 +68,13 @@
       "category": "clothes",
       "family": "clothes.placeholder_cream",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "clothes.placeholder_cream.v1.main.svg",
-          "sha256": "d3c06e08ce102d716858504f7aeb14d57433478a8f7fbbc4a67e56dff887a636"
+          "file": "clothes.placeholder_cream.v1.main.webp",
+          "sha256": "a92c5b7b1d82e9e89babf81270e556c50eb4c956c7e695d221017f9738c81c7a"
         }
       }
     },
@@ -72,13 +82,13 @@
       "category": "clothes",
       "family": "clothes.placeholder_teal",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "clothes.placeholder_teal.v1.main.svg",
-          "sha256": "653f5226642eba3ba7411712b21062bf6bbe7bf8d9b2cb136db9e418cd446476"
+          "file": "clothes.placeholder_teal.v1.main.webp",
+          "sha256": "a04679d8f3f7f5d85a19df07d1458f610573daaea69bde23407356b6b5526ff5"
         }
       }
     },
@@ -86,13 +96,13 @@
       "category": "expression",
       "family": "expression.placeholder_smile",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "expression.placeholder_smile.v1.main.svg",
-          "sha256": "90124b9d3f1e0ac0d961d453e390d33c9dca6fbc0bbb801cf4faa82a2260d030"
+          "file": "expression.placeholder_smile.v1.main.webp",
+          "sha256": "794ea284e65998b14b862d6ef08f556a936021f55a71642090d90bca93e2009a"
         }
       }
     },

@@ -346,6 +346,13 @@ The retained synthetic photo was restored, the deleted photo was withheld, and
 serving stayed closed. A subsequent focused five-case run also verified that an
 admission callback exception produces a fixed refusal and does not trigger a retry.
 
+The joint restore script now requires a matching verification for the latest
+restore generation before copying any retained synthetic object and checks
+that the database remains closed and both application roles lack CONNECT after
+copying. This isolates object preparation from permission to serve the restore.
+Run `usapp-backup-probe-b3c3c5aba6` confirmed the unverified-checkpoint refusal,
+then restored one retained object, withheld one deleted object, and left serving closed.
+
 Production endpoint and identity enrollment, resource ownership, independent current reads,
 active-incarnation authority, and main startup wiring remain open. The isolated PostgreSQL and
 synthetic object drills cover preparation. Release still needs provider-backed joint recovery

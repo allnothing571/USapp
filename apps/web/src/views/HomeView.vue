@@ -18,7 +18,7 @@
  * 刷新不会影响任务页与奖励页的待确认动作、幂等键或分页。
  * 跨过北京午夜、回到前台、恢复联网时重新读取。
  */
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { anniversaryHeadline, anniversaryNextLine, KIND_LABEL } from '@/api/anniversary-rules'
 import { messagePreview, messageTime } from '@/api/message-rules'
@@ -29,11 +29,13 @@ import type { PendingCounts } from '@/stores/home'
 import { useSessionStore } from '@/stores/session'
 import { useWalletStore } from '@/stores/wallet'
 import AvatarHome from '@/components/AvatarHome.vue'
+import GardenHome from '@/components/GardenHome.vue'
 import { useAvatarStore } from '@/stores/avatar'
 
 const session = useSessionStore()
 const walletStore = useWalletStore()
 const home = useHomeStore()
+const gardenRefresh = ref(0)
 
 const me = computed(() => session.user?.id ?? '')
 const nickname = computed(() => session.user?.display_name?.trim() || '未设置昵称')
@@ -43,6 +45,7 @@ function refreshAll(): void {
   void walletStore.load()
   void useAvatarStore().loadAppearance()
   void home.refresh()
+  gardenRefresh.value++
 }
 
 // Also reload when the caller changes while this component remains mounted.
@@ -169,104 +172,49 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
 </script>
 
 <template>
-  <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">小空间</h1>
-        <p class="page__subtitle">今天的任务、我的资产与待处理事项。</p>
-      </div>
-      <button class="btn btn--small btn--soft" type="button" data-test="home-refresh" @click="refreshAll()">刷新</button>
+  <section class="page home-page">
+    <header class="page-heading">
+      <h1 class="page__title">小空间</h1>
+      <button class="btn btn--small btn--ghost" type="button" data-test="home-refresh" @click="refreshAll()">刷新</button>
     </header>
 
-    <div class="home-grid">
-      <!-- 左上：昵称与自己的资产 -->
-      <div class="card home-grid__cell" data-test="home-me">
-        <h2 class="card__title">{{ nickname }}</h2>
-        <AvatarHome />
-        <div aria-live="polite" :aria-busy="walletStore.status === 'loading'" data-test="home-wallet">
-          <dl v-if="walletStore.status === 'ready' && walletStore.balances" class="kv">
-            <dt class="kv__key">小红花</dt>
-            <dd class="kv__value">{{ walletStore.balances.flower }}</dd>
-            <dt class="kv__key">阳光值</dt>
-            <dd class="kv__value">{{ walletStore.balances.sunshine }}</dd>
-          </dl>
-          <template v-else-if="walletStore.status === 'error'">
-            <p class="hint hint--error" role="alert">{{ walletStore.errorText }}</p>
-            <button class="btn btn--small btn--soft" type="button" @click="walletStore.load()">重试</button>
-          </template>
-          <p v-else class="card__hint">加载中…</p>
-        </div>
-      </div>
-
-      <!-- 右上：纪念日（P2-2，V1 §19）。加载中不显示内容；失败时显示重试，从不说“还没有纪念日”。 -->
-      <div class="card home-grid__cell" data-test="home-anniversary" aria-live="polite"
-        :aria-busy="home.anniversary.status === 'loading'">
-        <h2 class="card__title">纪念日</h2>
-        <template v-if="home.anniversary.status === 'error'">
-          <p class="hint hint--error" role="alert">{{ home.anniversary.errorText }}</p>
-          <button class="btn btn--small btn--soft" type="button" data-test="home-anniversary-retry"
-            @click="home.loadAnniversary()">重试</button>
-        </template>
-        <p v-else-if="home.anniversary.status !== 'ready'" class="card__hint">加载中…</p>
-        <RouterLink v-else-if="home.anniversary.anniversary" class="message-link" data-test="home-anniversary-link"
-          :to="{ name: 'anniversary-detail', params: { id: home.anniversary.anniversary.id } }">
-          <div class="list__title">{{ home.anniversary.anniversary.title }}</div>
-          <div class="list__meta">{{ KIND_LABEL[home.anniversary.anniversary.kind] }}
-            <template v-if="home.anniversary.source === 'pinned'"> · 已置顶</template></div>
-          <div class="kv__value" data-test="home-anniversary-headline">{{ anniversaryHeadline(home.anniversary.anniversary) }}</div>
-          <div v-if="anniversaryNextLine(home.anniversary.anniversary)" class="list__meta">
-            {{ anniversaryNextLine(home.anniversary.anniversary) }}</div>
+    <section class="home-welcome" aria-label="共享空间入口">
+      <img src="/ui-art/home.jpg" alt="" class="page-illustration">
+      <div class="home-destinations">
+        <RouterLink class="home-destination" :to="{ name: 'shared-room' }">
+          <span class="room-art" data-item="armchair" aria-hidden="true"></span><span>去小房间</span>
         </RouterLink>
-        <RouterLink v-else class="card__hint" :to="{ name: 'us' }" data-test="home-anniversary-none">还没有纪念日，去添加</RouterLink>
-      </div>
-
-      <!-- 左下：今天的任务 -->
-      <div class="card home-grid__cell" data-test="home-today" aria-live="polite" :aria-busy="home.tasks.status === 'loading'">
-        <h2 class="card__title">今天的任务</h2>
-        <template v-if="home.tasks.status === 'error'">
-          <p class="hint hint--error" role="alert">{{ home.tasks.errorText }}</p>
-          <button class="btn btn--small btn--soft" type="button" @click="home.loadTasks()">重试</button>
-        </template>
-        <p v-else-if="home.tasks.status !== 'ready'" class="card__hint">加载中…</p>
-        <template v-else>
-          <ul v-if="todayTasks.length" class="list">
-            <li v-for="task in todayTasks" :key="`${task.id}:${task.period_date ?? ''}`" class="list__item"
-              :data-test="`today-${task.id}`">
-              <div class="list__main">
-                <div class="list__title">{{ task.title }}</div>
-                <div class="list__meta">{{ taskMeta(task) }}</div>
-              </div>
-            </li>
-          </ul>
-          <p v-else-if="home.tasks.complete" class="card__hint" data-test="today-none">今天没有要做的任务。</p>
-          <p v-if="!home.tasks.complete" class="card__hint" data-test="today-incomplete">
-            只检查了前 {{ scanLimit }} 条进行中的任务，可能还有更多，请到任务页查看。
-          </p>
-        </template>
-        <RouterLink class="btn btn--small btn--soft" :to="{ name: 'tasks' }" data-test="home-tasks-link">全部任务</RouterLink>
-      </div>
-
-      <!-- 右下：对方最新留言（P2-1，V1 §19）。失败时显示错误，从不说“没有留言”。 -->
-      <div class="card home-grid__cell" data-test="home-latest-message" aria-live="polite"
-        :aria-busy="home.latestMessage.status === 'loading'">
-        <h2 class="card__title">对方的留言</h2>
-        <template v-if="home.latestMessage.status === 'error'">
-          <p class="hint hint--error" role="alert">{{ home.latestMessage.errorText }}</p>
-          <button class="btn btn--small btn--soft" type="button" @click="home.loadLatestMessage()">重试</button>
-        </template>
-        <p v-else-if="home.latestMessage.status !== 'ready'" class="card__hint">加载中…</p>
-        <RouterLink v-else-if="home.latestMessage.message" class="message-link" data-test="latest-message-link"
-          :to="{ name: 'message-detail', params: { id: home.latestMessage.message.id } }">
-          <div class="list__meta">{{ messageTime(home.latestMessage.message.created_at) }}
-            · {{ home.latestMessage.message.reply ? '已回复' : '待我回复' }}</div>
-          <div class="message-preview" data-test="latest-message-preview">{{ messagePreview(home.latestMessage.message.body) }}</div>
+        <RouterLink class="home-destination" :to="{ name: 'shared-garden' }">
+          <span class="room-art" data-item="garden" aria-hidden="true"></span><span>去共享花园</span>
         </RouterLink>
-        <p v-else class="card__hint" data-test="latest-message-none">对方还没有留言。</p>
-        <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }" data-test="home-us-link">留言板</RouterLink>
       </div>
+    </section>
+
+    <div class="card home-today" data-test="home-today" aria-live="polite" :aria-busy="home.tasks.status === 'loading'">
+      <h2 class="card__title">今天的任务</h2>
+      <template v-if="home.tasks.status === 'error'">
+        <p class="hint hint--error" role="alert">{{ home.tasks.errorText }}</p>
+        <button class="btn btn--small btn--soft" type="button" @click="home.loadTasks()">重试</button>
+      </template>
+      <p v-else-if="home.tasks.status !== 'ready'" class="card__hint">加载中…</p>
+      <template v-else>
+        <ul v-if="todayTasks.length" class="list">
+          <li v-for="task in todayTasks" :key="`${task.id}:${task.period_date ?? ''}`" class="list__item"
+            :data-test="`today-${task.id}`">
+            <div class="list__main">
+              <div class="list__title">{{ task.title }}</div>
+              <div class="list__meta">{{ taskMeta(task) }}</div>
+            </div>
+          </li>
+        </ul>
+        <p v-else-if="home.tasks.complete" class="card__hint" data-test="today-none">今天没有要做的任务。</p>
+        <p v-if="!home.tasks.complete" class="card__hint" data-test="today-incomplete">
+          只检查了前 {{ scanLimit }} 条进行中的任务，可能还有更多，请到任务页查看。
+        </p>
+      </template>
+      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'tasks' }" data-test="home-tasks-link">全部任务</RouterLink>
     </div>
 
-    <!-- 待处理事项（应用内提示，C2；不是推送通知） -->
     <div class="card" data-test="home-pending" aria-live="polite">
       <h2 class="card__title">待处理</h2>
       <p v-if="home.tasks.status === 'error'" class="hint hint--error" role="alert" data-test="pending-tasks-error">
@@ -315,5 +263,63 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
         记录较多，只检查了部分记录（进行中任务、历史任务与兑换记录每类最多 {{ scanLimit }} 条），实际可能更多，请到任务页与奖励页查看。
       </p>
     </div>
+
+    <div class="home-grid">
+      <div class="card home-grid__cell" data-test="home-anniversary" aria-live="polite"
+        :aria-busy="home.anniversary.status === 'loading'">
+        <h2 class="card__title">纪念日</h2>
+        <template v-if="home.anniversary.status === 'error'">
+          <p class="hint hint--error" role="alert">{{ home.anniversary.errorText }}</p>
+          <button class="btn btn--small btn--soft" type="button" data-test="home-anniversary-retry"
+            @click="home.loadAnniversary()">重试</button>
+        </template>
+        <p v-else-if="home.anniversary.status !== 'ready'" class="card__hint">加载中…</p>
+        <RouterLink v-else-if="home.anniversary.anniversary" class="message-link" data-test="home-anniversary-link"
+          :to="{ name: 'anniversary-detail', params: { id: home.anniversary.anniversary.id } }">
+          <div class="list__title">{{ home.anniversary.anniversary.title }}</div>
+          <div class="list__meta">{{ KIND_LABEL[home.anniversary.anniversary.kind] }}
+            <template v-if="home.anniversary.source === 'pinned'"> · 已置顶</template></div>
+          <div class="kv__value" data-test="home-anniversary-headline">{{ anniversaryHeadline(home.anniversary.anniversary) }}</div>
+          <div v-if="anniversaryNextLine(home.anniversary.anniversary)" class="list__meta">
+            {{ anniversaryNextLine(home.anniversary.anniversary) }}</div>
+        </RouterLink>
+        <RouterLink v-else class="card__hint" :to="{ name: 'us' }" data-test="home-anniversary-none">还没有纪念日，去添加</RouterLink>
+      </div>
+      <div class="card home-grid__cell" data-test="home-latest-message" aria-live="polite"
+        :aria-busy="home.latestMessage.status === 'loading'">
+        <h2 class="card__title">对方的留言</h2>
+        <template v-if="home.latestMessage.status === 'error'">
+          <p class="hint hint--error" role="alert">{{ home.latestMessage.errorText }}</p>
+          <button class="btn btn--small btn--soft" type="button" @click="home.loadLatestMessage()">重试</button>
+        </template>
+        <p v-else-if="home.latestMessage.status !== 'ready'" class="card__hint">加载中…</p>
+        <RouterLink v-else-if="home.latestMessage.message" class="message-link" data-test="latest-message-link"
+          :to="{ name: 'message-detail', params: { id: home.latestMessage.message.id } }">
+          <div class="list__meta">{{ messageTime(home.latestMessage.message.created_at) }}
+            · {{ home.latestMessage.message.reply ? '已回复' : '待我回复' }}</div>
+          <div class="message-preview" data-test="latest-message-preview">{{ messagePreview(home.latestMessage.message.body) }}</div>
+        </RouterLink>
+        <p v-else class="card__hint" data-test="latest-message-none">对方还没有留言。</p>
+        <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }" data-test="home-us-link">留言板</RouterLink>
+      </div>
+      <div class="card home-grid__cell" data-test="home-me">
+        <h2 class="card__title">{{ nickname }}</h2>
+        <AvatarHome />
+        <div aria-live="polite" :aria-busy="walletStore.status === 'loading'" data-test="home-wallet">
+          <dl v-if="walletStore.status === 'ready' && walletStore.balances" class="kv">
+            <dt class="kv__key">小红花</dt>
+            <dd class="kv__value">{{ walletStore.balances.flower }}</dd>
+            <dt class="kv__key">阳光值</dt>
+            <dd class="kv__value">{{ walletStore.balances.sunshine }}</dd>
+          </dl>
+          <template v-else-if="walletStore.status === 'error'">
+            <p class="hint hint--error" role="alert">{{ walletStore.errorText }}</p>
+            <button class="btn btn--small btn--soft" type="button" @click="walletStore.load()">重试</button>
+          </template>
+          <p v-else class="card__hint">加载中…</p>
+        </div>
+      </div>
+    </div>
+    <GardenHome :refresh-key="gardenRefresh" summary-only />
   </section>
 </template>

@@ -6,7 +6,7 @@ export const keys: Record<AvatarSlot, string> = { hair: 'hair.placeholder_bob.v1
 export function item(n = 1, category: AvatarSlot = 'hair', starter = true, version = 1): AvatarItem {
   const a = manifest.assets[keys[category] as keyof typeof manifest.assets]
   return { id: id(n), category, starter, version, name: `装扮${n}`, price_sunshine: starter ? null : 20,
-    asset: { key: keys[category], format: 'svg', layers: Object.keys(a.layers), covers_hair_top: a.covers_hair_top,
+    asset: { key: keys[category], format: a.format as AvatarItem['asset']['format'], layers: Object.keys(a.layers), covers_hair_top: a.covers_hair_top,
       accessory_position: a.accessory_position as AvatarItem['asset']['accessory_position'] } }
 }
 export const hair = () => item(1)
@@ -28,6 +28,8 @@ export function receipt(i = hat()) {
 export function loadoutReceipt(request: LoadoutRequest = { expected_version: 0, slots: emptySlots() }, current: Appearance | null = appearance(request.expected_version + 1)): LoadoutResponse {
   const slots = { ...request.slots, hair: request.slots.hair ?? id(1), clothes: request.slots.clothes ?? id(2), expression: request.slots.expression ?? id(3) }
   return { replayed: false, loadout: { id: id(200), version: request.expected_version + 1, slots, requested: { ...request.slots },
+    ...(request.character_gender ? { character_gender: request.character_gender } : {}),
+    ...(request.hair_hidden !== undefined ? { hair_hidden: request.hair_hidden } : {}),
     starter_version: ['hair', 'clothes', 'expression'].some(s => request.slots[s as AvatarSlot] === null) ? 1 : null,
     created_at: '2026-11-10T02:00:00.000000Z' }, current: current ? { appearance: current } : null }
 }
