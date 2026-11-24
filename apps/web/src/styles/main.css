@@ -756,10 +756,10 @@ textarea {
 .avatar-swatch[data-category="hair"] { --thumb-scale: 1.6; --thumb-y: 48%; }
 .avatar-swatch[data-category="bald"] { --thumb-scale: 2; --thumb-y: 60%; }
 .avatar-swatch[data-category="expression"] { --thumb-scale: 3.4; --thumb-y: 83%; }
-.avatar-swatch[data-category="hat"] { --thumb-scale: 2; --thumb-y: 78%; }
-.avatar-swatch[data-category="accessory"] { --thumb-scale: 3.2; --thumb-y: 42%; }
+.avatar-swatch[data-category="hat"] { --thumb-scale: 2; --thumb-y: 76%; }
+.avatar-swatch[data-category="accessory"] { --thumb-scale: 3.2; --thumb-y: 28%; }
 .avatar-swatch[data-category="accessory"][data-art-format="svg"] { --thumb-y: -17%; }
-.avatar-swatch[data-category="handheld"] { --thumb-scale: 2.8; --thumb-y: -43%; --thumb-x: -65px; }
+.avatar-swatch[data-category="handheld"] { --thumb-scale: 2.3; --thumb-y: -12%; --thumb-x: -57px; }
 .avatar-swatch[aria-pressed="true"] { background: var(--green-soft); box-shadow: inset 0 0 0 2px var(--green); }
 .avatar-swatch:disabled { opacity: .65; cursor: default; }
 .avatar-confirm { border: 2px solid var(--green); }

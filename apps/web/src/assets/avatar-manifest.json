@@ -110,13 +110,13 @@
       "category": "expression",
       "family": "expression.placeholder_wink",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "expression.placeholder_wink.v1.main.svg",
-          "sha256": "ac26bfa0bf84cf841ba9a9563b2efabb1d79b1912e13a354eea77fab8e96c18b"
+          "file": "expression.placeholder_wink.v1.main.webp",
+          "sha256": "d581c03958a295d68ec6cfa738d6c0329f0a48bcd6bb460f1958262db0d1ba5e"
         }
       }
     },
@@ -124,13 +124,13 @@
       "category": "hat",
       "family": "hat.placeholder_cap",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": true,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "hat.placeholder_cap.v1.main.svg",
-          "sha256": "cb2b58d09624636d41a3b246ffe06c2df79065edb29be8fd8b733a3c2c921fb5"
+          "file": "hat.placeholder_cap.v1.main.webp",
+          "sha256": "d0e9de53e6b30c34d038dec9d126f5f145b03dd884ab9f542629b8c8a59de7f7"
         }
       }
     },
@@ -138,13 +138,13 @@
       "category": "handheld",
       "family": "handheld.placeholder_flower",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": null,
       "layers": {
         "main": {
-          "file": "handheld.placeholder_flower.v1.main.svg",
-          "sha256": "1cae735f2af91c89ac2c247cd1b6f1510da25ceb3a48f078219e519d2f278f8f"
+          "file": "handheld.placeholder_flower.v1.main.webp",
+          "sha256": "f95b7853489beddf05d33b782a4e3cd47b1e0d15aaa34feb7d5b1f59b610af8c"
         }
       }
     },
@@ -152,13 +152,13 @@
       "category": "accessory",
       "family": "accessory.placeholder_bow",
       "revision": 1,
-      "format": "svg",
+      "format": "webp",
       "covers_hair_top": null,
       "accessory_position": "neck",
       "layers": {
         "main": {
-          "file": "accessory.placeholder_bow.v1.main.svg",
-          "sha256": "dbb27f711b7b53bf4efbd5ba6fd838658b958fd8aa1b4fd9cd876304e4484f12"
+          "file": "accessory.placeholder_bow.v1.main.webp",
+          "sha256": "16b8c3534c4a1285f8e192157c84ce224f79e723ae19026451905029d5ffd4ab"
         }
       }
     }

@@ -229,20 +229,25 @@ def item_layer(base, source, bounds, neck, category):
     if category == "hat":
         region = (GRID_Y <= y0 + (y1 - y0) * 0.55) & (GRID_X >= x0 - 45) & (GRID_X <= x1 + 45)
     elif category == "accessory":
-        region = (GRID_Y >= neck - 16) & (GRID_Y <= neck + 43) & (offset <= 65)
+        region = (GRID_Y >= neck - 16) & (GRID_Y <= neck + 65) & (offset <= 65)
     else:
         # Allow both hands and objects extending up, down, or out from either cuff.
         height = bottom - top
-        region = (GRID_Y >= neck + 0.12 * height) & (GRID_Y <= neck + 0.53 * height)
+        region = (GRID_Y >= neck) & (GRID_Y <= neck + 0.53 * height)
         region = region & (offset >= (right - left) * 0.27)
     occupied = source[..., 3] > 32
     added = (base[..., 3] <= 32) | (difference(base, source) > 32)
+    base_dark = (base[..., 3] > 32) & (base[..., :3].max(axis=2) < 130)
+    source_dark = (source[..., 3] > 32) & (source[..., :3].max(axis=2) < 130)
+    outline_drift = source_dark & dilate(base_dark, 3)
     skin_shift = skin(source) & (skin(base) | dilate(base[..., 3] > 32, 3) & ~erode(base[..., 3] > 32, 3))
-    candidate = occupied & region & added & ~skin_shift
-    connected = cv2.morphologyEx(candidate.astype(np.uint8), cv2.MORPH_CLOSE, kernel(2)) > 0
-    item = fill_small_holes(keep_components(connected, 35), 60)
+    core = occupied & region & added & ~skin_shift & ~outline_drift
+    core = cv2.morphologyEx(core.astype(np.uint8), cv2.MORPH_OPEN, kernel(1)) > 0
+    core = keep_components(core, 60)
+    item = fill_small_holes(core | (dilate(core, 4) & occupied & region & added & ~skin_shift), 150)
+    item = keep_components(item, 150)
     try:
-        return layer(source, dilate(item) & region & occupied & ~skin_shift)
+        return layer(source, dilate(item) & region & occupied)
     except ValueError as exc:
         raise ValueError(f"No {category} found in the aligned source region") from exc
 
