@@ -1282,6 +1282,26 @@ int main() {
                 CHECK_NOT_CONTAINS(text, "memory_texts");
                 continue;
             }
+            if (name == "0059_room_character_positions.sql") {
+                CHECK_CONTAINS(text, "REVOKE ALL ON public.avatar_character_choices, public.room_standings, public.room_position_swaps FROM PUBLIC, usapp_api, usapp_push;");
+                CHECK_CONTAINS(text, "RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp");
+                CHECK_CONTAINS(text, "FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                continue;
+            }
+            if (name == "0060_avatar_bald_style.sql") {
+                CHECK_EQ(text.find("SECURITY DEFINER"), text.rfind("SECURITY DEFINER"));
+                CHECK_CONTAINS(text, "RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "public.usapp_avatar_loadout_save_with_style(uuid,text,text,integer,jsonb,text,boolean)");
+                CHECK_CONTAINS(text, "FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                continue;
+            }
             CHECK_NOT_CONTAINS(text, "SECURITY DEFINER");
         }
         const auto appConfig = readFileContent(repoRoot / "services" / "api" / "src" / "config" / "AppConfig.cc");

@@ -1235,6 +1235,19 @@ int main() {
         std::string spaceId;
         std::string inviteId;
 
+        auto deleteRoomStandings = [&](const std::string &cid) {
+            if (cid.empty()) {
+                return;
+            }
+            if (const char *maintInfo = std::getenv("USAPP_TEST_MAINT_CONNINFO"); maintInfo && *maintInfo) {
+                usapptest::avatar::asMaintenance("SELECT 1");
+                usapptest::avatar::maint()->execSqlSync(
+                    "DELETE FROM room_standings WHERE couple_id = $1::uuid", cid);
+            } else {
+                client->execSqlSync("DELETE FROM room_standings WHERE couple_id = $1::uuid", cid);
+            }
+        };
+
         try {
             // A. 创建测试用户 1 与空间，并将其加入槽位 1
             const std::string userEmail = "inv_creator_" + crypto::randomHex(4) + "@example.com";
@@ -1419,13 +1432,14 @@ int main() {
             if (invCountAfter.size() != 1u) throw std::runtime_error("查询邀请消费次数失败");
             CHECK_EQ(invCountAfter[0]["used_count"].as<int>(), 1);
 
-            // 清理数据（按逆依赖顺序清理）：audit_logs -> space_invites -> couple_members -> couples -> users
+            // 清理数据（按逆依赖顺序清理）：audit_logs -> space_invites -> room_standings -> couple_members -> couples -> users
             client->execSqlSync(
                 "DELETE FROM audit_logs WHERE (target_type = 'space_invite' AND target_id = $1) "
                 "   OR (target_type = 'couple' AND target_id = $2)",
                 inviteId, spaceId);
             client->execSqlSync("DELETE FROM space_invites WHERE id = $1::uuid", inviteId);
             inviteId.clear();
+            deleteRoomStandings(spaceId);
             client->execSqlSync("DELETE FROM couple_members WHERE couple_id = $1::uuid", spaceId);
             client->execSqlSync("DELETE FROM couples WHERE id = $1::uuid", spaceId);
             spaceId.clear();
@@ -1445,6 +1459,7 @@ int main() {
                     client->execSqlSync("DELETE FROM space_invites WHERE id = $1::uuid", inviteId);
                 }
                 if (!spaceId.empty()) {
+                    deleteRoomStandings(spaceId);
                     client->execSqlSync("DELETE FROM couple_members WHERE couple_id = $1::uuid", spaceId);
                     client->execSqlSync("DELETE FROM couples WHERE id = $1::uuid", spaceId);
                 }

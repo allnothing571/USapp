@@ -1,4 +1,4 @@
-# Owned, loopback-only C++ HTTPS -> Python dispatcher -> synthetic publication stores.
+﻿# Owned, loopback-only C++ HTTPS -> Python dispatcher -> synthetic publication stores.
 param(
  [Parameter(Mandatory=$true)][string]$Compiler,
  [Parameter(Mandatory=$true)][string]$Project,
@@ -82,8 +82,9 @@ try{
  [void](J @('cp',($Compiler+':'+$pki),$hostPki))
  $env:USAPP_JOURNAL_TLS_TEST_DIR=$hostPki
  $pylog=Join-Path $Work 'journal-service-host-tests.log'
- & python -B -m unittest tests.test_journal_https_server tests.test_journal_backend tests.test_journal_backend_tls tests.test_journal_recovery_reader tests.test_journal_recovery_tls tests.test_j4c_metadata tests.test_deletion_journal_bridge tests.test_deletion_journal_publication tests.test_deletion_journal_batches tests.test_deletion_journal *> $pylog
- if($LASTEXITCODE -ne 0){Get-Content -LiteralPath $pylog -Tail 60 | Write-Output;throw 'Host journal service tests failed.'}
+ $oldEap=$ErrorActionPreference;$ErrorActionPreference='Continue'
+ try{& python -B -m unittest tests.test_journal_https_server tests.test_journal_backend tests.test_journal_backend_tls tests.test_journal_recovery_reader tests.test_journal_recovery_tls tests.test_j4c_metadata tests.test_deletion_journal_bridge tests.test_deletion_journal_publication tests.test_deletion_journal_batches tests.test_deletion_journal *> $pylog;$pyCode=$LASTEXITCODE}finally{$ErrorActionPreference=$oldEap}
+ if($pyCode -ne 0){Get-Content -LiteralPath $pylog -Tail 60 | Write-Output;throw 'Host journal service tests failed.'}
  Get-Content -LiteralPath $pylog -Tail 4 | Write-Output
  # Shares only the owned compiler's network namespace. No host port, real service or external resource.
  $runtimeName=$Project+'-journal-python'
@@ -147,8 +148,9 @@ try{
    if(![Net.IPAddress]::TryParse($targetAddress,[ref]$address) -or
       $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){throw 'Restore target IPv4 address required.'}
    $issuerTests=Join-Path $Work 'recovery-authority-issuer-tests.log'
-   & node --test (Join-Path $repo 'tests/test_recovery_authority_issuer.mjs') *> $issuerTests
-   if($LASTEXITCODE -ne 0){Get-Content -LiteralPath $issuerTests -Tail 30 | Write-Output;throw 'Recovery issuer tests failed.'}
+   $oldEap=$ErrorActionPreference;$ErrorActionPreference='Continue'
+   try{& node --test (Join-Path $repo 'tests/test_recovery_authority_issuer.mjs') *> $issuerTests;$issuerCode=$LASTEXITCODE}finally{$ErrorActionPreference=$oldEap}
+   if($issuerCode -ne 0){Get-Content -LiteralPath $issuerTests -Tail 30 | Write-Output;throw 'Recovery issuer tests failed.'}
    ExpectFence 'fence_controller' 'request_pause' $fixturePause 'draining'
    ExpectFence 'fence_controller' 'confirm_pause' $fixturePause 'draining'
    ExpectFence 'fence_publisher' 'admit' $fixtureAdmission 'refused'
