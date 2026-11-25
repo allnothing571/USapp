@@ -1,4 +1,4 @@
-# Owned disposable signed/encrypted database backup and independent restore probe; V1 or explicit V2 rehearsal.
+﻿# Owned disposable signed/encrypted database backup and independent restore probe; V1 or explicit V2 rehearsal.
 # Synthetic source and fresh restore target only; application CONNECT remains denied.
 param(
  [string]$Image = 'sha256:83afaf6179c2f2c80c73ee209f907773f33a67deac1610905924ed17e66cbfb1',
@@ -18,9 +18,9 @@ Set-Location -LiteralPath $repo
 $expected0047 = '75d67669f3ac1ac31bb11fa7fc4282662710fa9137fd5a26729c7fc716edf132'
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repo 'database/migrations/0047_achievements.sql')).Hash.ToLowerInvariant() -ne $expected0047) { throw 'Frozen 0047 bytes changed.' }
 $migrations = @(Get-ChildItem -LiteralPath (Join-Path $repo 'database/migrations') -Filter '*.sql')
-$latestJournalDrill = $JournalDrill -and $migrations.Count -eq 63
-$expectedCount = if ($SharedRoomUpgrade -or $latestJournalDrill) { 63 } else { 54 }
-$expectedLast = if ($SharedRoomUpgrade -or $latestJournalDrill) { '0062_avatar_layer_refresh' } else { '0053_memory_decision_timestamp' }
+$latestJournalDrill = $JournalDrill -and $migrations.Count -eq 64
+$expectedCount = if ($SharedRoomUpgrade -or $latestJournalDrill) { 64 } else { 54 }
+$expectedLast = if ($SharedRoomUpgrade -or $latestJournalDrill) { '0063_avatar_layer_refresh' } else { '0053_memory_decision_timestamp' }
 if ($migrations.Count -ne $expectedCount -or ($migrations | Sort-Object Name | Select-Object -Last 1).BaseName -cne $expectedLast) { throw 'Unexpected migration set.' }
 foreach($frozenLine in [IO.File]::ReadAllLines((Join-Path $repo 'database/frozen-through-0048.sha256'))) {
  $parts=$frozenLine.Split(' ');$frozenPath=Join-Path $repo ('database/migrations/'+$parts[0]);
