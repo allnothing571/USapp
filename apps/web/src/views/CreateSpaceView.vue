@@ -102,7 +102,7 @@ function goHome(): void {
 <template>
   <section class="page">
     <header>
-      <h1 class="page__title">创建你们的小空间</h1>
+      <h1 class="page__title">创建「今与久」专属空间</h1>
       <p class="page__subtitle">一个空间最多两个人，时区固定为 Asia/Shanghai。</p>
     </header>
 

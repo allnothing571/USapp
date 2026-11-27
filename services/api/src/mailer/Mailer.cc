@@ -105,15 +105,15 @@ std::string Mailer::buildMessage(const std::string &toEmail, const std::string &
     message += "From: " + from + "\r\n";
     message += "To: " + toEmail + "\r\n";
     // 主题保持 ASCII：避免引入 RFC 2047 编码，减少发送路径上的可变量。
-    message += "Subject: USapp login code\r\n";
+    message += "Subject: JYJ login code\r\n";
     message += "MIME-Version: 1.0\r\n";
     message += "Content-Type: text/plain; charset=UTF-8\r\n";
     message += "Content-Transfer-Encoding: 8bit\r\n";
     message += "\r\n";
-    message += "Your USapp login code is: " + code + "\r\n";
+    message += "「今与久」(JYJ) 登录验证码：" + code + "\r\n";
     message += "\r\n";
-    message += "This code expires in " + std::to_string(minutes) + " minute(s).\r\n";
-    message += "If you did not request it, ignore this email and do not share the code.\r\n";
+    message += "验证码将在 " + std::to_string(minutes) + " 分钟后失效。\r\n";
+    message += "如非本人操作请忽略本邮件，切勿向他人透露验证码。\r\n";
     return message;
 }
 

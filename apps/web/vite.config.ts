@@ -26,9 +26,9 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['favicon.svg', 'icons/*.png', 'apple-touch-icon.png'],
       manifest: {
-        name: '我们的小空间',
-        short_name: '小空间',
-        description: '只属于两个人的小空间：共享日程、奖励与留言。阶段 0 只交付登录、会话与情侣空间。',
+        name: '今与久',
+        short_name: '今与久',
+        description: '今与久 · JYJ · Since 2026.09.10 —— 只属于两个人的共享日常、小房间与花园。',
         start_url: '/',
         scope: '/',
         display: 'standalone',

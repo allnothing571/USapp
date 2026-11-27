@@ -137,7 +137,16 @@ textarea {
 
 .page > header, .page-heading { min-width: 0; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.page-heading > .page__title { margin: 0; }
+.page-heading > .page__title,
+.home-brand .page__title { margin: 0; }
+.home-brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-brand__sub {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+}
 
 .page__title {
   font-family: var(--font-title);

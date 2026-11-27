@@ -115,7 +115,7 @@ describe('Origin-aware smart back navigation', () => {
     })
     const gardenBack = useSmartBack('shared-garden', 'home')
     expect(gardenBack.value).toEqual({
-      to: { name: 'home' }, group: 'home', routeName: 'home', label: '小空间',
+      to: { name: 'home' }, group: 'home', routeName: 'home', label: '今与久',
     })
   })
 
@@ -130,7 +130,7 @@ describe('Origin-aware smart back navigation', () => {
       global: { plugins: [router] },
     })
     await flushPromises()
-    expect(wrapper.get('[data-test="back-to-us"]').text()).toBe('‹ 返回小空间')
+    expect(wrapper.get('[data-test="back-to-us"]').text()).toBe('‹ 返回今与久')
     expect(wrapper.get('[data-test="back-to-us"]').attributes('href')).toBe('/home')
     expect(wrapper.find('[data-test="all-messages-link"]').exists()).toBe(true)
     wrapper.unmount()
@@ -162,7 +162,7 @@ describe('Origin-aware smart back navigation', () => {
     recordBackNavigation(fakeRoute('messages', '/us/messages'), fakeRoute('message-detail', '/us/messages/letter-0'), 'u1')
     const back = useSmartBack('messages', 'us').value
     expect(back.routeName).toBe('home')
-    expect(back.label).toBe('小空间')
+    expect(back.label).toBe('今与久')
   })
 
   it('preserves original entry across sibling avatar tab switches and removes redundant home button', async () => {
@@ -177,7 +177,7 @@ describe('Origin-aware smart back navigation', () => {
       global: { plugins: [router] },
     })
     await flushPromises()
-    expect(wrapper.get('[data-test="avatar-back"]').text()).toBe('‹ 返回小空间')
+    expect(wrapper.get('[data-test="avatar-back"]').text()).toBe('‹ 返回今与久')
     expect(wrapper.get('[data-test="avatar-back"]').attributes('href')).toBe('/home')
     expect(wrapper.findAll('.avatar-nav a')).toHaveLength(2)
     wrapper.unmount()
@@ -208,7 +208,7 @@ describe('Origin-aware smart back navigation', () => {
     wrapper = mount(SharedGardenView, { global: { plugins: [router] } })
     await flushPromises()
     expect(wrapper.get('[data-test="garden-back"]').attributes('href')).toBe('/home')
-    expect(wrapper.get('[data-test="garden-back"]').attributes('aria-label')).toBe('返回小空间')
+    expect(wrapper.get('[data-test="garden-back"]').attributes('aria-label')).toBe('返回今与久')
     wrapper.unmount()
 
     await router.push('/home')

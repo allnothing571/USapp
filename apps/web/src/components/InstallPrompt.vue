@@ -104,7 +104,7 @@ defineExpose({ installable: showInstallButton })
   <aside v-if="visible" class="install-prompt" aria-live="polite">
     <div class="install-prompt__row">
       <span v-if="showInstallButton" class="install-prompt__text">
-        把「小空间」装到桌面，打开更快
+        把「今与久」装到桌面，打开更快
       </span>
       <span v-else class="install-prompt__text">
         想装到桌面？点底部分享，再选「添加到主屏幕」

@@ -10,7 +10,7 @@ import { eventLabel, targetPath, type NotificationTargetKind } from '../api/noti
 import type { MarkerRecord } from './push-marker'
 
 export const PUSH_CAPABILITY = 'push:v1'
-export const GENERIC_TITLE = 'USapp'
+export const GENERIC_TITLE = '今与久'
 export const GENERIC_BODY = '你有一条新通知'
 export const GENERIC_TAG = 'usapp-generic'
 export const FALLBACK_PATH = '/notifications'

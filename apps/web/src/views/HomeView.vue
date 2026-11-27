@@ -187,7 +187,10 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
 <template>
   <section class="page home-page">
     <header v-if="!props.section || isHub" class="page-heading">
-      <h1 class="page__title">小空间</h1>
+      <div class="home-brand">
+        <h1 class="page__title">今与久</h1>
+        <p class="home-brand__sub">JYJ · Since 2026.09.10</p>
+      </div>
       <button class="btn btn--small btn--ghost" type="button" data-test="home-refresh" @click="refreshAll()">刷新</button>
     </header>
     <header v-else class="subpage-header">

@@ -108,8 +108,8 @@ function backToEmail(): void {
   <section class="page login-page">
     <header class="login-welcome">
       <img src="/ui-art/login.jpg" alt="" class="page-illustration">
-      <h1 class="page__title">我们的小空间</h1>
-      <p class="page__subtitle">用邮箱验证码登录你们的小空间。</p>
+      <h1 class="page__title">今与久</h1>
+      <p class="page__subtitle">JYJ · Since 2026.09.10 · 用邮箱验证码登录</p>
     </header>
 
     <div class="card login-form">

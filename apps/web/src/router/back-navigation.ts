@@ -77,7 +77,7 @@ const DETAIL_TO_LIST_PARENT: Record<string, string> = {
 }
 
 const ROUTE_LABEL: Record<string, string> = {
-  home: '小空间',
+  home: '今与久',
   tasks: '任务',
   rewards: '奖励',
   us: '我们',

@@ -140,11 +140,11 @@ describe('installed handlers', () => {
 
   it('always shows a notification, and only a fixed label', async () => {
     await pushWith(JSON.stringify(payload()))
-    expect(show).toHaveBeenLastCalledWith('USapp', expect.objectContaining({ body: eventLabel('message.created'), tag: NID }))
+    expect(show).toHaveBeenLastCalledWith('今与久', expect.objectContaining({ body: eventLabel('message.created'), tag: NID }))
     await pushWith(null)
-    expect(show).toHaveBeenLastCalledWith('USapp', expect.objectContaining({ body: GENERIC_BODY, tag: GENERIC_TAG }))
+    expect(show).toHaveBeenLastCalledWith('今与久', expect.objectContaining({ body: GENERIC_BODY, tag: GENERIC_TAG }))
     await pushWith(JSON.stringify(payload({ message: 'secret words' })))
-    expect(show).toHaveBeenLastCalledWith('USapp', expect.objectContaining({ body: GENERIC_BODY }))
+    expect(show).toHaveBeenLastCalledWith('今与久', expect.objectContaining({ body: GENERIC_BODY }))
     expect(JSON.stringify(show.mock.calls)).not.toContain('secret words')
     expect(show).toHaveBeenCalledTimes(3)
   })
@@ -155,12 +155,12 @@ describe('installed handlers', () => {
     expect(show.mock.calls[0]?.[1].tag).toBe(show.mock.calls[1]?.[1].tag)
     marker = null
     await pushWith(JSON.stringify(payload()))
-    expect(show).toHaveBeenLastCalledWith('USapp', expect.objectContaining({ body: GENERIC_BODY }))
+    expect(show).toHaveBeenLastCalledWith('今与久', expect.objectContaining({ body: GENERIC_BODY }))
   })
 
   it('treats unreadable storage and an unreadable body as no marker and no payload', async () => {
     await fire('push', { data: { text: () => { throw new Error('bad') } } })
-    expect(show).toHaveBeenLastCalledWith('USapp', expect.objectContaining({ body: GENERIC_BODY }))
+    expect(show).toHaveBeenLastCalledWith('今与久', expect.objectContaining({ body: GENERIC_BODY }))
   })
 
   const clickEvent = (data: unknown) => ({ notification: { data, close: vi.fn() } })
