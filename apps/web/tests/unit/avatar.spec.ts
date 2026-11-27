@@ -408,7 +408,7 @@ describe('avatar UI and public-art boundary', () => {
   })
   it('checks manifest hashes, shared WebP canvas and safe legacy SVG contents', () => {
     const files = [manifest.base, ...Object.values(manifest.bases), ...Object.values(manifest.assets).flatMap(a => Object.values(a.layers))]
-    expect(new Set(files.map(f => f.file)).size).toBe(14)
+    expect(new Set(files.map(f => f.file)).size).toBe(29)
     for (const f of files) {
       const bytes = readFileSync(resolve('public/avatars', f.file))
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(f.sha256)
@@ -430,5 +430,32 @@ describe('avatar UI and public-art boundary', () => {
     for (const p of ['/api/v1/avatar', '/api/v1/avatar/owned', '/api/v1/avatar/catalog', '/api/v1/avatar/purchases']) expect(isCacheableRequest(p, 'GET')).toBe(false)
     expect(isCacheableRequest('/avatars/' + manifest.base.file, 'GET', { sameOrigin: true, destination: 'image' })).toBe(true)
     expect(readFileSync(resolve('vite.config.ts'), 'utf8')).toContain("'**/avatars/**'")
+  })
+  it('supports shop All overview filter with per-category counts and face-accessory layering', async () => {
+    const glasses = {
+      id: id(12), category: 'accessory' as const, starter: false, version: 1,
+      name: '复古圆框眼镜', price_sunshine: 20, listed: true,
+      asset: {
+        key: 'accessory.round_glasses.v1', format: 'webp' as const, layers: ['main'],
+        covers_hair_top: null, accessory_position: 'face' as const,
+      },
+    }
+    vi.mocked(getAvatarCatalog).mockResolvedValueOnce({ items: [hair(), clothes(), expression(), hat(), glasses] })
+    const w = view()
+    await flushPromises()
+    expect(w.get('[data-test="avatar-category-all"]').attributes('aria-pressed')).toBe('true')
+    expect(w.get('[data-test="avatar-category-all"]').text()).toContain('5')
+    expect(w.findAll('[data-test="avatar-shop-item"]')).toHaveLength(5)
+    expect(w.get(`[data-test="avatar-try-${glasses.id}"]`).attributes('data-accessory-position')).toBe('face')
+
+    await w.get('[data-test="avatar-category-accessory"]').trigger('click')
+    expect(w.findAll('[data-test="avatar-shop-item"]')).toHaveLength(1)
+    await w.get('[data-test="avatar-category-all"]').trigger('click')
+    expect(w.findAll('[data-test="avatar-shop-item"]')).toHaveLength(5)
+
+    const slots = { ...appearance().slots, hat: hat(), accessory: glasses }
+    const keys = figureLayers(slots).layers.map(l => l.key)
+    expect(keys.indexOf('hat:main')).toBeGreaterThan(-1)
+    expect(keys.indexOf('accessory:main')).toBeGreaterThan(keys.indexOf('hat:main'))
   })
 })

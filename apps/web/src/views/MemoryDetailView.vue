@@ -29,8 +29,10 @@ import PhotoDeletionNotices from '@/components/PhotoDeletionNotices.vue'
 import { useMemoriesStore } from '@/stores/memories'
 import { useMediaCapabilityStore } from '@/stores/media-capability'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ id: string }>()
+const back = useSmartBack('memory-detail', 'memories')
 
 const session = useSessionStore()
 const store = useMemoriesStore()
@@ -158,11 +160,11 @@ function versionText(entry: MemoryProposalSummary): string {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">回忆</h1>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'memories' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="memory-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">回忆</h1>
+      <RouterLink v-if="back.group !== 'memories'" class="btn btn--small btn--soft" :to="{ name: 'memories' }"
+        data-test="all-memories-link">全部回忆</RouterLink>
     </header>
 
     <div class="card stack" data-test="memory-detail" aria-live="polite" :aria-busy="store.detail.status === 'loading'">

@@ -14,6 +14,7 @@ import type { RouteRecordRaw } from 'vue-router'
 
 import LoginView from '@/views/LoginView.vue'
 import { useSessionStore } from '@/stores/session'
+import { prepareRouteTransition, recordBackNavigation } from './back-navigation'
 
 /** 已认证但尚无空间时，仍允许访问的路由名。 */
 const ALLOWED_WITHOUT_SPACE: ReadonlySet<string> = new Set([
@@ -58,6 +59,19 @@ const routes: RouteRecordRaw[] = [
     path: '/home',
     name: 'home',
     component: () => import('@/views/HomeView.vue'),
+    props: { section: 'hub' },
+  },
+  {
+    path: '/home/today',
+    name: 'home-today',
+    component: () => import('@/views/HomeView.vue'),
+    props: { section: 'today' },
+  },
+  {
+    path: '/home/pending',
+    name: 'home-pending',
+    component: () => import('@/views/HomeView.vue'),
+    props: { section: 'pending' },
   },
   {
     path: '/achievements', name: 'achievements', component: () => import('@/views/AchievementsView.vue'),
@@ -78,22 +92,85 @@ const routes: RouteRecordRaw[] = [
     path: '/shared-garden/history', name: 'shared-garden-history', component: () => import('@/views/GardenHistoryView.vue'),
   },
   {
-    // 阶段 1 M3-B：一次性任务的发布与列表（需要已认证且已加入空间，走下方全局守卫）。
+    // 任务一级门户：仅展示待办统计与三个独立功能入口。
     path: '/tasks',
     name: 'tasks',
     component: () => import('@/views/TasksView.vue'),
+    props: { section: 'hub' },
   },
   {
-    // 阶段 1 M7：奖励商店（上架、修改、下架；不含兑换）。
+    path: '/tasks/open',
+    name: 'tasks-open',
+    component: () => import('@/views/TasksView.vue'),
+    props: { section: 'open' },
+  },
+  {
+    path: '/tasks/new',
+    name: 'tasks-new',
+    component: () => import('@/views/TasksView.vue'),
+    props: { section: 'publish' },
+  },
+  {
+    path: '/tasks/history',
+    name: 'tasks-history',
+    component: () => import('@/views/TasksView.vue'),
+    props: { section: 'history' },
+  },
+  {
+    // 奖励一级门户：小红花余额与四个独立功能入口。
     path: '/rewards',
     name: 'rewards',
     component: () => import('@/views/RewardsView.vue'),
+    props: { section: 'hub' },
   },
   {
-    // 阶段 2 P2-1：“我们”——双人留言板（之后承载纪念日、回忆等）。
+    path: '/rewards/shop',
+    name: 'rewards-shop',
+    component: () => import('@/views/RewardsView.vue'),
+    props: { section: 'shop' },
+  },
+  {
+    path: '/rewards/new',
+    name: 'rewards-new',
+    component: () => import('@/views/RewardsView.vue'),
+    props: { section: 'new' },
+  },
+  {
+    path: '/rewards/mine',
+    name: 'rewards-mine',
+    component: () => import('@/views/RewardsView.vue'),
+    props: { section: 'mine' },
+  },
+  {
+    path: '/rewards/records',
+    name: 'rewards-records',
+    component: () => import('@/views/RewardsView.vue'),
+    props: { section: 'records' },
+  },
+  {
+    // 我们一级门户：插画与各情感记忆/恢复功能入口卡片。
     path: '/us',
     name: 'us',
     component: () => import('@/views/UsView.vue'),
+    props: { section: 'hub' },
+  },
+  {
+    path: '/us/messages',
+    name: 'messages',
+    component: () => import('@/views/UsView.vue'),
+    props: { section: 'messages' },
+  },
+  {
+    path: '/us/anniversaries',
+    name: 'anniversaries',
+    component: () => import('@/views/UsView.vue'),
+    props: { section: 'anniversaries' },
+  },
+  {
+    path: '/us/recovery',
+    name: 'us-recovery',
+    component: () => import('@/views/UsView.vue'),
+    props: { section: 'recovery' },
   },
   {
     path: '/us/messages/:id',
@@ -167,10 +244,29 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
-    // 阶段 1 M10：账号、昵称、空间、邀请与注销（原首页内容）。
+    // 我的门户及三个二级专页：空间成员与邀请、推送设备、数据导出。
     path: '/me',
     name: 'me',
     component: () => import('@/views/MeView.vue'),
+    props: { section: 'hub' },
+  },
+  {
+    path: '/me/space',
+    name: 'me-space',
+    component: () => import('@/views/MeView.vue'),
+    props: { section: 'space' },
+  },
+  {
+    path: '/me/devices',
+    name: 'me-devices',
+    component: () => import('@/views/MeView.vue'),
+    props: { section: 'devices' },
+  },
+  {
+    path: '/me/export',
+    name: 'me-export',
+    component: () => import('@/views/MeView.vue'),
+    props: { section: 'export' },
   },
   {
     path: '/:pathMatch(.*)*',
@@ -218,6 +314,17 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+router.beforeResolve((to, from) => {
+  const session = useSessionStore()
+  prepareRouteTransition(to, from, session.user?.id ?? null)
+})
+
+router.afterEach((to, from, failure) => {
+  if (failure) return
+  const session = useSessionStore()
+  recordBackNavigation(to, from, session.user?.id ?? null)
 })
 
 export default router

@@ -9,9 +9,21 @@ export type RoomItem = keyof typeof ROOM_ITEMS
 export const FREE_ROOM_ITEMS = ['table', 'lamp', 'plant', 'rug'] as const
 const PAID_ROOM_ITEMS = ['bookshelf', 'armchair', 'vase'] as const
 export type PaidRoomItem = typeof PAID_ROOM_ITEMS[number]
+export const MAX_ROOM_FURNITURE = Object.keys(ROOM_ITEMS).length
 export interface RoomFurniture { item: PaidRoomItem; price: number; owned: boolean }
-export interface Placement { item: RoomItem; x: number; y: number }
+export interface Placement { item: RoomItem; x: number; y: number; flip?: boolean }
 export type RoomSide = 'left' | 'right'
+
+export function isLegacyGridCoord(placement: Pick<Placement, 'x' | 'y'>): boolean {
+  return Number.isInteger(placement.x) && Number.isInteger(placement.y) &&
+    placement.x >= 0 && placement.x <= 3 && placement.y >= 0 && placement.y <= 2
+}
+
+export function renderCoords(placement: Pick<Placement, 'x' | 'y'>): { x: number; y: number } {
+  return isLegacyGridCoord(placement)
+    ? { x: 125 + placement.x * 250, y: 220 + placement.y * 320 }
+    : { x: placement.x, y: placement.y }
+}
 export type PositionAction = 'request' | 'accept' | 'decline' | 'cancel'
 export interface RoomPositions { side: RoomSide; paired: boolean; pending: { id: string; incoming: boolean } | null }
 export const oppositeSide = (side: RoomSide): RoomSide => side === 'left' ? 'right' : 'left'
@@ -33,9 +45,12 @@ function integer(value: unknown, max: number): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max
 }
 function validPlacement(value: unknown): value is Placement {
-  return object(value) && Object.keys(value).length === 3 &&
-    typeof value.item === 'string' && Object.hasOwn(ROOM_ITEMS, value.item) &&
-    integer(value.x, 3) && integer(value.y, 2)
+  if (!object(value)) return false
+  const keys = Object.keys(value)
+  if (!keys.every(key => key === 'item' || key === 'x' || key === 'y' || key === 'flip')) return false
+  if (value.flip !== undefined && typeof value.flip !== 'boolean') return false
+  return typeof value.item === 'string' && Object.hasOwn(ROOM_ITEMS, value.item) &&
+    integer(value.x, 1000) && integer(value.y, 1000)
 }
 function paidItem(value: unknown): value is PaidRoomItem {
   return PAID_ROOM_ITEMS.some(item => value === item)
@@ -61,10 +76,11 @@ export async function changeRoomPosition(id: string, action: PositionAction): Pr
 }
 
 export function isSharedRoom(value: unknown): value is SharedRoom {
-  return object(value) && integer(value.version, 1_000_000_000) &&
-    Array.isArray(value.layout) && value.layout.length <= 4 && value.layout.every(validPlacement) &&
-    new Set(value.layout.map(item => item.item)).size === value.layout.length &&
-    new Set(value.layout.map(item => item.x + ':' + item.y)).size === value.layout.length &&
+  if (!object(value) || !integer(value.version, 1_000_000_000) ||
+    !Array.isArray(value.layout) || value.layout.length > MAX_ROOM_FURNITURE || !value.layout.every(validPlacement) ||
+    new Set(value.layout.map(item => item.item)).size !== value.layout.length) return false
+  const nonRug = value.layout.filter(entry => entry.item !== 'rug')
+  return new Set(nonRug.map(item => item.x + ':' + item.y)).size === nonRug.length &&
     (value.furniture === undefined || (Array.isArray(value.furniture) && value.furniture.length <= PAID_ROOM_ITEMS.length &&
       value.furniture.every(validFurniture) && new Set(value.furniture.map(entry => entry.item)).size === value.furniture.length)) &&
     typeof value.share_avatar === 'boolean' &&

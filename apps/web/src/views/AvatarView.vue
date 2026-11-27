@@ -8,8 +8,10 @@ import RoomPositionsPanel from '@/components/RoomPositionsPanel.vue'
 import { useAvatarStore } from '@/stores/avatar'
 import { useSessionStore } from '@/stores/session'
 import { useWalletStore } from '@/stores/wallet'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = withDefaults(defineProps<{ tab?: 'shop' | 'wardrobe' }>(), { tab: 'shop' })
+const back = useSmartBack('avatar', 'us')
 const store = useAvatarStore(), session = useSessionStore(), wallet = useWalletStore()
 const originalSide = computed(() => roomCharacter(session.space, session.user?.id))
 const roomPositions = ref<RoomPositions | null>(null)
@@ -21,7 +23,18 @@ const savedBald = computed(() => store.appearance?.hair_hidden === true)
 const previewBald = computed(() => draftBald.value ?? savedBald.value)
 const previewGender = computed(() => draftGender.value ?? savedGender.value)
 const category = ref<AvatarSlot>('hair')
-const headCategory = computed(() => category.value === 'hair' || category.value === 'expression' || category.value === 'hat')
+const shopFilter = ref<'all' | AvatarSlot>('all')
+const headCategory = computed(() => {
+  if (props.tab === 'wardrobe') {
+    return category.value === 'hair' || category.value === 'expression' || category.value === 'hat'
+      || (category.value === 'accessory' && preview.value.accessory?.asset.accessory_position === 'face')
+  }
+  if (shopTry.value) {
+    return shopTry.value.category === 'hair' || shopTry.value.category === 'expression' || shopTry.value.category === 'hat'
+      || shopTry.value.asset.accessory_position === 'face'
+  }
+  return shopFilter.value === 'hair' || shopFilter.value === 'expression' || shopFilter.value === 'hat'
+})
 const baldThumbnail = computed(() => figureLayers(emptyFigureSlots(), previewGender.value).layers[0]?.src)
 const draft = ref<SlotIds>(emptySlots())
 const draftVersion = ref<number | null>(null)
@@ -33,7 +46,7 @@ const shopTry = ref<AvatarItem | null>(null)
 const stage = ref<HTMLElement | null>(null)
 const purchasePanel = ref<HTMLElement | null>(null)
 const requiredSlots: AvatarSlot[] = ['hair', 'clothes', 'expression']
-watch([() => props.tab, category], () => { shopTry.value = null })
+watch([() => props.tab, category, shopFilter], () => { shopTry.value = null })
 function syncDraft(): void {
   if (!store.appearance || store.appearanceStatus !== 'ready') return
   draft.value = Object.fromEntries(AVATAR_SLOTS.map(s => [s, store.appearance?.slots[s]?.id ?? null])) as SlotIds
@@ -64,7 +77,16 @@ const available = computed(() => {
 const preview = computed<FigureSlots>(() => Object.fromEntries(AVATAR_SLOTS.map(s =>
   [s, available.value.find(i => i.id === draft.value[s] && i.category === s) ?? null])) as FigureSlots)
 const wardrobeItems = computed(() => available.value.filter(item => item.category === category.value))
-const visibleCatalog = computed(() => store.catalog.filter(item => item.category === category.value))
+const slotCounts = computed<Record<AvatarSlot, number>>(() => {
+  const counts: Record<AvatarSlot, number> = {
+    hair: 0, clothes: 0, expression: 0, hat: 0, handheld: 0, accessory: 0,
+  }
+  for (const entry of store.catalog) counts[entry.category] += 1
+  return counts
+})
+const visibleCatalog = computed(() => shopFilter.value === 'all'
+  ? store.catalog
+  : store.catalog.filter(item => item.category === shopFilter.value))
 const currentSlots = computed(() => store.appearanceStatus === 'ready' && store.appearance
   ? store.appearance.slots : emptyFigureSlots())
 function withItem(slots: FigureSlots, item: AvatarItem | null): FigureSlots {
@@ -126,15 +148,17 @@ function acceptNewBase(): void {
 
 <template>
   <section class="page stack avatar-page" data-test="avatar-page">
-    <header class="page__header"><h1 class="page__title">{{ tab === 'shop' ? '装扮商店' : '我的衣柜' }}</h1>
-      <p class="page__subtitle">{{ tab === 'shop' ? '试穿喜欢的单品，再用阳光购买。' : '试好今天的搭配，再保存你的形象。' }}</p></header>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="avatar-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">{{ tab === 'shop' ? '装扮商店' : '我的衣柜' }}</h1>
+      <p class="subpage-header__subtitle">{{ tab === 'shop' ? '试穿喜欢的单品，再用阳光购买。' : '试好今天的搭配，再保存你的形象。' }}</p>
+    </header>
     <nav class="row avatar-nav" aria-label="装扮导航">
       <RouterLink class="btn btn--soft" :to="{ name: 'avatar-shop' }">商店</RouterLink>
       <RouterLink class="btn btn--soft" :to="{ name: 'avatar-wardrobe' }">衣柜</RouterLink>
-      <RouterLink class="btn btn--ghost" :to="{ name: 'home' }">首页</RouterLink>
     </nav>
     <p v-if="store.notice" class="hint" role="status" data-test="avatar-notice">{{ store.notice }}</p>
-    <div v-if="tab === 'shop'" class="card avatar-balance" data-test="avatar-wallet">
+    <div v-if="tab === 'shop'" class="card avatar-balance avatar-tab-panel" data-test="avatar-wallet">
       <p v-if="wallet.status === 'ready' && wallet.balances">我的阳光：<strong>{{ wallet.balances.sunshine }}</strong> · 装扮只使用阳光，不消耗小红花。</p>
       <p v-else-if="wallet.status === 'loading'" class="card__hint">正在读取我的阳光…</p>
       <p v-else class="hint hint--error">{{ wallet.errorText || '尚未读取余额。' }}</p>
@@ -182,11 +206,18 @@ function acceptNewBase(): void {
         :label="tab === 'wardrobe' ? '衣柜试穿预览' : '商店试穿预览'" compact />
     </section>
 
-    <div class="row avatar-tabs" role="group" aria-label="装扮分类">
-      <button v-for="slot in AVATAR_SLOTS" :key="slot" type="button" class="btn btn--small btn--soft" :aria-pressed="category === slot"
-        :data-test="`avatar-category-${slot}`" @click="category = slot">{{ SLOT_LABEL[slot] }}</button>
+    <div class="row avatar-tabs" :class="{ 'avatar-tabs--shop': tab === 'shop' }" role="group" aria-label="装扮分类">
+      <button v-if="tab === 'shop'" type="button" class="btn btn--small btn--soft" :aria-pressed="shopFilter === 'all'"
+        data-test="avatar-category-all" @click="shopFilter = 'all'">
+        全部<span v-if="store.catalogStatus === 'ready' && store.catalog.length" class="avatar-tab-count">{{ store.catalog.length }}</span>
+      </button>
+      <button v-for="slot in AVATAR_SLOTS" :key="slot" type="button" class="btn btn--small btn--soft"
+        :aria-pressed="tab === 'shop' ? shopFilter === slot : category === slot"
+        :data-test="`avatar-category-${slot}`" @click="tab === 'shop' ? (shopFilter = slot, category = slot) : (category = slot)">
+        {{ SLOT_LABEL[slot] }}<span v-if="tab === 'shop' && store.catalogStatus === 'ready' && slotCounts[slot]" class="avatar-tab-count">{{ slotCounts[slot] }}</span>
+      </button>
     </div>
-    <div v-if="tab === 'shop'" class="stack">
+    <div v-if="tab === 'shop'" class="stack avatar-tab-panel">
       <p v-if="store.catalogStatus === 'loading'" class="card__hint">正在读取商店…</p>
       <div v-else-if="store.catalogStatus === 'error'" class="card stack"><p class="hint hint--error">{{ store.catalogError }}</p>
         <button type="button" class="btn" @click="store.loadCatalog()">重新读取商店</button></div>
@@ -195,7 +226,8 @@ function acceptNewBase(): void {
         <p v-else-if="!visibleCatalog.length" class="card__hint">这个分类暂时没有上架装扮。</p>
         <div class="avatar-item-grid">
           <article v-for="item in visibleCatalog" :key="item.id" class="card stack" data-test="avatar-shop-item">
-            <button class="avatar-swatch" :data-category="item.category" :data-art-format="item.asset.format" type="button"
+            <button class="avatar-swatch" :data-category="item.category" :data-art-format="item.asset.format"
+              :data-accessory-position="item.asset.accessory_position ?? undefined" type="button"
               :aria-pressed="shopTry?.id === item.id" :aria-label="`试穿 ${item.name}`"
               :data-test="`avatar-try-${item.id}`" @click="tryOn(item)">
               <span v-if="itemThumbnail(item)" class="avatar-swatch__art"><img :src="itemThumbnail(item)!" alt="" /></span>
@@ -203,7 +235,7 @@ function acceptNewBase(): void {
             </button>
             <h2 class="card__title">{{ item.name }}</h2>
             <p class="list__meta">{{ SLOT_LABEL[item.category] }} · 第 {{ item.version }} 版 · {{ item.starter ? '免费初始装扮' : `${item.price_sunshine} 阳光` }}</p>
-            <RouterLink v-if="item.starter || store.owns(item.id)" :to="{ name: 'avatar-wardrobe' }">{{ item.starter ? '去衣柜选择' : '已拥有，去衣柜穿戴' }}</RouterLink>
+            <RouterLink v-if="item.starter || store.owns(item.id)" class="btn btn--soft" :to="{ name: 'avatar-wardrobe' }">{{ item.starter ? '去衣柜选择' : '已拥有，去衣柜穿戴' }}</RouterLink>
             <button v-else type="button" class="btn" :disabled="purchaseLocked || !store.ownedComplete || wallet.status !== 'ready'"
               :data-test="`avatar-buy-${item.id}`" @click="askBuy(item)">购买前确认</button>
           </article>
@@ -220,7 +252,7 @@ function acceptNewBase(): void {
       <p v-if="store.ownedComplete">已读取我的 {{ store.owned.length }} 件已购装扮；免费初始装扮另列。</p>
     </div>
 
-    <div v-if="tab === 'wardrobe'" class="stack">
+    <div v-if="tab === 'wardrobe'" class="stack avatar-tab-panel">
       <div class="card stack">
           <h2 class="card__title">{{ SLOT_LABEL[category] }}</h2>
           <p v-if="defaultsPending" class="card__hint">必选部位的“使用默认”将在保存时由服务器确定；预览不代表届时的默认项。</p>
@@ -237,6 +269,7 @@ function acceptNewBase(): void {
             </button>
             <button v-for="item in wardrobeItems" :key="item.id" type="button" class="avatar-swatch"
               :data-category="item.category" :data-art-format="item.asset.format"
+              :data-accessory-position="item.asset.accessory_position ?? undefined"
               :disabled="!!store.saveAction || draftVersion === null" :aria-pressed="draft[category] === item.id && (category !== 'hair' || !previewBald)"
               :data-test="`avatar-wear-${item.id}`" @click="pick(item)">
               <span v-if="itemThumbnail(item)" class="avatar-swatch__art"><img :src="itemThumbnail(item)!" alt="" /></span>

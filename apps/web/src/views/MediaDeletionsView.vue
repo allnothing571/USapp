@@ -12,7 +12,9 @@ import type { UndoableMediaDeletion } from '@/api/types'
 import PhotoDeletionNotices from '@/components/PhotoDeletionNotices.vue'
 import { useMediaDeletionsStore } from '@/stores/media-deletions'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('media-deletions', 'us-recovery')
 const session = useSessionStore()
 const store = useMediaDeletionsStore()
 
@@ -40,12 +42,10 @@ function parentRoute(item: UndoableMediaDeletion) {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">最近删除的照片</h1>
-        <p class="page__subtitle">只有你自己删除的照片会出现在这里。每张照片可以在期限之前撤销删除，过期后不能恢复。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="media-deletions-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">最近删除的照片</h1>
+      <p class="subpage-header__subtitle">只有你自己删除的照片会出现在这里。每张照片可以在期限之前撤销删除，过期后不能恢复。</p>
     </header>
 
     <PhotoDeletionNotices />
@@ -71,7 +71,7 @@ function parentRoute(item: UndoableMediaDeletion) {
       <ul v-else class="list">
         <li v-for="item in store.items" :key="item.deletion_id" class="list__item" data-test="deletion-row" :data-deletion="item.deletion_id">
           <div class="list__main">
-            <RouterLink v-if="parentRoute(item)" class="list__title message-link" :to="parentRoute(item)!" data-test="deletion-context">{{ describeDeletionContext(item.context) }}</RouterLink>
+            <RouterLink v-if="parentRoute(item)" class="btn btn--small btn--soft" :to="parentRoute(item)!" data-test="deletion-context">{{ describeDeletionContext(item.context) }}</RouterLink>
             <div v-else class="list__title" data-test="deletion-context">{{ describeDeletionContext(item.context) }}</div>
             <div class="list__meta" data-test="deletion-uploaded-at">上传于 {{ messageTime(item.uploaded_at) }}</div>
             <div class="list__meta" data-test="deletion-deleted-at">删除于 {{ messageTime(item.deleted_at) }}</div>

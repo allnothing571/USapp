@@ -3,7 +3,9 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { describeError } from '@/api/error-messages'
 import { getSharedGardenMonth, isGardenMonthKey, type SharedGardenMonth } from '@/api/shared-garden'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('shared-garden-history', 'shared-garden')
 const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 const session = useSessionStore()
 const snapshot = ref<SharedGardenMonth | null>(null)
@@ -107,9 +109,9 @@ onBeforeUnmount(cancelRead)
 
 <template>
   <main class="page garden-month">
-    <header>
-      <RouterLink :to="{ name: 'shared-garden' }">返回共享花园</RouterLink>
-      <h1 class="page__title">浇水月历</h1>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="garden-history-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">浇水月历</h1>
     </header>
     <section class="card" aria-label="按月查看浇水记录" :aria-busy="busy">
       <div class="month-heading">
@@ -179,7 +181,7 @@ onBeforeUnmount(cancelRead)
 .month-days li { min-width: 0; border: 1px solid #ded6c9; border-radius: .35rem; }
 .month-days li.together { background: #e9eddb; border-color: #c0c9ad; }
 .month-day { display: grid; align-content: center; justify-items: center; width: 100%; min-height: 3.05rem; padding: 0; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; }
-.month-day[aria-current="date"] time { text-decoration: underline; font-weight: 700; }
+.month-day[aria-current="date"] time { display: inline-flex; align-items: center; justify-content: center; padding: 0 .35rem; border-radius: 999px; background: var(--honey); font-weight: 700; }
 .month-day[aria-pressed="true"], .month-day:focus-visible { outline: 2px solid #416349; outline-offset: -1px; }
 .month-marks { display: flex; justify-content: center; flex-wrap: wrap; gap: .12rem; font-size: .68rem; }
 .month-marks span { color: #635f55; border-radius: .2rem; padding: 0 .09rem; }

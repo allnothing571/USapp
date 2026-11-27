@@ -23,11 +23,30 @@ import { useExportStore } from '@/stores/export'
 import { useSessionStore } from '@/stores/session'
 import { useSpaceStore } from '@/stores/space'
 import { StaleSessionError } from '@/stores/stale'
+import { useSmartBack } from '@/router/back-navigation'
+
+const props = defineProps<{ section?: 'hub' | 'space' | 'devices' | 'export' }>()
+const back = useSmartBack(
+  () => (props.section === 'devices' ? 'me-devices' : props.section === 'export' ? 'me-export' : 'me-space'),
+  'me',
+)
 
 const session = useSessionStore()
 const spaceStore = useSpaceStore()
 const exportStore = useExportStore()
 const router = useRouter()
+
+const isHub = computed(() => props.section === 'hub')
+const SUBPAGE_TITLE: Record<'space' | 'devices' | 'export', string> = {
+  space: '空间成员与邀请码',
+  devices: '消息推送设备',
+  export: '导出我的数据',
+}
+const subpageTitle = computed(() =>
+  props.section === 'space' || props.section === 'devices' || props.section === 'export'
+    ? SUBPAGE_TITLE[props.section]
+    : '',
+)
 
 const errorText = ref('')
 const loggingOut = ref(false)
@@ -163,14 +182,124 @@ async function logout(): Promise<void> {
 
 <template>
   <section class="page">
-    <header>
-      <h1 class="page__title">我的</h1>
-      <p class="page__subtitle">账号、昵称、空间与邀请。</p>
-    </header>
+    <template v-if="isHub">
+      <header>
+        <h1 class="page__title">我的</h1>
+        <p class="page__subtitle">个人档案、空间管理与数据设置。</p>
+      </header>
 
-    <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
+      <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
 
-    <div class="card">
+      <div class="card stack">
+        <div class="row" style="justify-content: space-between; align-items: flex-start;">
+          <div>
+            <h2 class="card__title" style="margin-bottom: 4px;">{{ user?.display_name || '未设置昵称' }}</h2>
+            <div class="list__meta">{{ user?.email || '—' }} · 注册于 {{ formatDate(user?.created_at) }}</div>
+          </div>
+          <span v-if="space" class="badge badge--accent">成员 {{ space.member_count }} / 2</span>
+        </div>
+
+        <form v-if="editingName" class="stack" @submit.prevent="saveName()">
+          <div class="field">
+            <label class="field__label" for="me-display-name">
+              昵称（{{ nameDraftLength }} / {{ DISPLAY_NAME_MAX_CODE_POINTS }}）
+            </label>
+            <input
+              id="me-display-name"
+              v-model="nameDraft"
+              class="field__input"
+              type="text"
+              name="nickname"
+              autocomplete="nickname"
+              :disabled="savingName"
+            />
+          </div>
+          <p v-if="nameError" class="hint hint--error" role="alert">{{ nameError }}</p>
+          <div class="row">
+            <button class="btn btn--small" type="submit" :disabled="savingName">
+              {{ savingName ? '正在保存…' : '保存' }}
+            </button>
+            <button class="btn btn--small btn--ghost" type="button" :disabled="savingName" @click="cancelEditName()">
+              取消
+            </button>
+          </div>
+        </form>
+        <div class="row" style="justify-content: space-between;">
+          <span class="list__meta">{{ space ? `当前空间：${space.name}` : '还没有加入任何空间' }}</span>
+          <button v-if="!editingName" class="btn btn--small btn--soft" type="button" data-test="edit-name" @click="startEditName()">
+            修改昵称
+          </button>
+        </div>
+      </div>
+
+      <div class="hub-grid" data-test="me-hub">
+        <RouterLink class="hub-card" :to="{ name: 'me-space' }" data-test="hub-me-space">
+          <span class="hub-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="8.5" r="3" />
+              <circle cx="16.5" cy="9.5" r="2.5" />
+              <path d="M4 19c1.2-2.7 3-4 5-4s3.8 1.3 5 4" />
+              <path d="M14.5 15.5c1.8 0 3.5 1 4.5 3.5" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">空间成员与邀请码</span>
+            <span class="hub-card__sub">{{ space ? `${space.name} · 查看双槽位与可用邀请` : '创建或加入双人共享空间' }}</span>
+          </span>
+          <span class="hub-card__meta">
+            <span v-if="spaceStore.availableInvites.length" class="hub-badge">{{ spaceStore.availableInvites.length }} 个邀请</span>
+            <span class="hub-arrow" aria-hidden="true">›</span>
+          </span>
+        </RouterLink>
+
+        <RouterLink class="hub-card" :to="{ name: 'me-devices' }" data-test="hub-me-devices">
+          <span class="hub-card__icon hub-card__icon--green" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6.5 2 6.5H4s2-1.5 2-6.5" />
+              <path d="M10 19a2 2 0 0 0 4 0" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">消息推送设备</span>
+            <span class="hub-card__sub">管理本机浏览器的消息推送提醒</span>
+          </span>
+          <span class="hub-card__meta"><span class="hub-arrow" aria-hidden="true">›</span></span>
+        </RouterLink>
+
+        <RouterLink class="hub-card" :to="{ name: 'me-export' }" data-test="hub-me-export">
+          <span class="hub-card__icon hub-card__icon--warm" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 4v11" />
+              <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+              <path d="M4.5 19.5h15" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">导出我的数据</span>
+            <span class="hub-card__sub">下载个人记录与可见空间内容备份（JSON）</span>
+          </span>
+          <span class="hub-card__meta"><span class="hub-arrow" aria-hidden="true">›</span></span>
+        </RouterLink>
+      </div>
+
+      <button class="btn btn--block btn--danger" type="button" data-test="logout" :disabled="loggingOut" @click="logout()">
+        {{ loggingOut ? '正在注销…' : '注销登录' }}
+      </button>
+    </template>
+
+    <template v-else>
+      <header v-if="!props.section">
+        <h1 class="page__title">我的</h1>
+        <p class="page__subtitle">账号、昵称、空间与邀请。</p>
+      </header>
+      <header v-else class="subpage-header">
+        <RouterLink class="back-pill" :to="back.to" data-test="back-to-me">‹ 返回{{ back.label }}</RouterLink>
+        <h1 class="subpage-header__title">{{ subpageTitle }}</h1>
+      </header>
+
+      <p v-if="errorText" class="hint hint--error" role="alert">{{ errorText }}</p>
+
+      <div v-if="!props.section" class="card">
       <h2 class="card__title">当前用户</h2>
       <dl class="kv">
         <dt class="kv__key">昵称</dt>
@@ -209,7 +338,7 @@ async function logout(): Promise<void> {
       <button v-else class="btn btn--small btn--soft" type="button" data-test="edit-name" @click="startEditName()">修改昵称</button>
     </div>
 
-    <div class="card">
+    <div v-if="!props.section || props.section === 'space'" class="card">
       <h2 class="card__title">空间</h2>
       <template v-if="space">
         <dl class="kv">
@@ -229,7 +358,7 @@ async function logout(): Promise<void> {
       </template>
     </div>
 
-    <div class="card">
+    <div v-if="!props.section || props.section === 'space'" class="card">
       <h2 class="card__title">成员槽位</h2>
       <ul class="list">
         <li v-for="item in slots" :key="item.slot" class="list__item" :class="{ 'list__item--muted': !item.member }">
@@ -245,7 +374,7 @@ async function logout(): Promise<void> {
       </ul>
     </div>
 
-    <div class="card" data-test="invites">
+    <div v-if="!props.section || props.section === 'space'" class="card" data-test="invites">
       <RouterLink v-if="space?.member_count === 1" class="btn btn--soft" :to="{ name: 'space-create' }">
         选择站位并发出邀请
       </RouterLink>
@@ -264,7 +393,7 @@ async function logout(): Promise<void> {
       <p class="card__hint">为安全起见，邀请码明文只在生成时展示一次，这里不再回显。</p>
     </div>
 
-    <div v-if="session.isAuthenticated" class="card" data-test="user-export">
+    <div v-if="(!props.section || props.section === 'export') && session.isAuthenticated" class="card" data-test="user-export">
       <h2 class="card__title">导出我的数据</h2>
       <p class="card__hint">
         导出一个 JSON 文件：你自己的账号数据（含你的小红花与阳光值流水、提醒设置、装扮与成就），以及你现在能在空间里看到的共同内容（任务、留言、纪念日、回忆、相册与计划的文字和记录）。
@@ -291,10 +420,11 @@ async function logout(): Promise<void> {
       </button>
     </div>
 
-    <PushDeviceCard v-if="session.isAuthenticated" :key="user?.id ?? 'anonymous'" />
+    <PushDeviceCard v-if="(!props.section || props.section === 'devices') && session.isAuthenticated" :key="user?.id ?? 'anonymous'" />
 
-    <button class="btn btn--block btn--danger" type="button" data-test="logout" :disabled="loggingOut" @click="logout()">
+    <button v-if="!props.section" class="btn btn--block btn--danger" type="button" data-test="logout" :disabled="loggingOut" @click="logout()">
       {{ loggingOut ? '正在注销…' : '注销登录' }}
     </button>
+    </template>
   </section>
 </template>

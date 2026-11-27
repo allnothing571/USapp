@@ -1,0 +1,15 @@
+* text=auto
+*.sh text eol=lf
+*.mjs text eol=lf
+database/migrations/*.sql -text
+database/*.sql text eol=lf
+deploy/Caddyfile* text eol=lf
+deploy/Dockerfile* text eol=lf
+deploy/*.yml text eol=lf
+deploy/env.prod.example text eol=lf
+.github/workflows/*.yml text eol=lf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.webp binary
+*.png binary
+*.jpg binary

@@ -1,0 +1,151 @@
+# =====================================================================
+# USapp Production Compose (GHCR prebuilt images + Caddy auto HTTPS)
+# Usage: docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
+# =====================================================================
+
+name: usapp
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-usapp}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?required}
+      POSTGRES_API_USER: ${POSTGRES_USER:-usapp_api}
+      POSTGRES_API_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_PUSH_USER: ${POSTGRES_PUSH_USER:-usapp_push}
+      POSTGRES_PUSH_PASSWORD: ${POSTGRES_PUSH_PASSWORD:?required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - usapp_net
+
+  push-worker:
+    image: ${GHCR_IMAGE_PREFIX:-ghcr.io/allnothing571/usapp}-push-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      PUSH_WORKER_ENABLED: ${PUSH_WORKER_ENABLED:-true}
+      PUSH_WORKER_PRIVATE_NETWORK: "true"
+      PUSH_WORKER_HOST: 0.0.0.0
+      PUSH_WORKER_PORT: 8090
+      PUSH_WORKER_TOKEN: ${PUSH_WORKER_TOKEN:?required}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:?required}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?required}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:?required}
+    networks:
+      - usapp_net
+
+  api:
+    image: ${GHCR_IMAGE_PREFIX:-ghcr.io/allnothing571/usapp}-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      PUBLIC_ORIGIN: https://${PUBLIC_DOMAIN:?required}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-https://localhost:8444}
+      API_PUBLIC_BIND: 0.0.0.0
+      API_PUBLIC_PORT: 8080
+      API_ADMIN_BIND: 0.0.0.0
+      API_ADMIN_PORT: 8081
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-127.0.0.1/32,::1/128,172.28.0.0/16}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-usapp}
+      POSTGRES_USER: ${POSTGRES_USER:-usapp_api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-8}
+      REGISTRATION_MODE: WHITELIST
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:?required}
+      EMAIL_CODE_TTL_SECONDS: ${EMAIL_CODE_TTL_SECONDS:-600}
+      EMAIL_CODE_MAX_ATTEMPTS: ${EMAIL_CODE_MAX_ATTEMPTS:-5}
+      EMAIL_CODE_RESEND_COOLDOWN_SECONDS: ${EMAIL_CODE_RESEND_COOLDOWN_SECONDS:-60}
+      EMAIL_CODE_HOURLY_LIMIT: ${EMAIL_CODE_HOURLY_LIMIT:-8}
+      PREAUTH_SESSION_TTL_SECONDS: ${PREAUTH_SESSION_TTL_SECONDS:-1800}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-2592000}
+      SESSION_COOKIE_NAME: __Host-usapp-session
+      ADMIN_SESSION_COOKIE_NAME: __Host-usapp-admin
+      SESSION_SECRET: ${SESSION_SECRET:?required}
+      MAIL_MODE: ${MAIL_MODE:-smtp}
+      SMTP_HOST: ${SMTP_HOST:?required}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:?required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?required}
+      SMTP_FROM: ${SMTP_FROM:?required}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_TICK_INTERVAL_MS: ${SCHEDULER_TICK_INTERVAL_MS:-15000}
+      SCHEDULER_INSTANCE_ID: ${SCHEDULER_INSTANCE_ID:-vps-1}
+      SCHEDULER_KEY_NAMESPACE: ${SCHEDULER_KEY_NAMESPACE:-usapp.scheduler}
+      REMINDERS_ENABLED: ${REMINDERS_ENABLED:-true}
+      MEMORY_PURGE_ENABLED: "false"
+      MEDIA_ENABLED: "false"
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
+      PUSH_ENABLED: ${PUSH_ENABLED:-true}
+      PUSH_SUBSCRIBE_ENABLED: ${PUSH_SUBSCRIBE_ENABLED:-true}
+      PUSH_WORKER_URL: http://push-worker:8090
+      PUSH_WORKER_TOKEN: ${PUSH_WORKER_TOKEN:?required}
+      PUSH_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:?required}
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      push-worker:
+        condition: service_started
+    networks:
+      - usapp_net
+
+  caddy:
+    image: ${GHCR_IMAGE_PREFIX:-ghcr.io/allnothing571/usapp}-edge:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?required}
+      ACME_EMAIL: ${ACME_EMAIL:?required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "127.0.0.1:8444:8444"
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - usapp_net
+
+volumes:
+  pgdata:
+    name: usapp_pgdata
+  caddy_data:
+    name: usapp_caddy_data
+  caddy_config:
+    name: usapp_caddy_config
+
+networks:
+  usapp_net:
+    name: usapp_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

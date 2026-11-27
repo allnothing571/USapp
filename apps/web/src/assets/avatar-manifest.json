@@ -161,6 +161,176 @@
           "sha256": "16b8c3534c4a1285f8e192157c84ce224f79e723ae19026451905029d5ffd4ab"
         }
       }
+    },
+    "hair.linen_part.v1": {
+      "category": "hair",
+      "family": "hair.linen_part",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "back": {
+          "file": "hair.linen_part.v1.back.webp",
+          "sha256": "6f550a7deeb3bc5655caeacdc4434a04d6a2fde9f8cbbebc7cad2263b591e1e9"
+        },
+        "front": {
+          "file": "hair.linen_part.v1.front.webp",
+          "sha256": "eb547bcc21d726dcde990a8a5850c7ed1b987dac602e4631c3e986157c1b48b5"
+        },
+        "front_under_hat": {
+          "file": "hair.linen_part.v1.front_under_hat.webp",
+          "sha256": "20d80aaaba26948a65594bab84d03fa563824e0fb4482ec0caf27858983d6afd"
+        }
+      }
+    },
+    "clothes.denim_overall.v1": {
+      "category": "clothes",
+      "family": "clothes.denim_overall",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "clothes.denim_overall.v1.main.webp",
+          "sha256": "c502f098cc52b8a8176591153b8676a2607b354f91b581bedf6546eb4c9b8dfd"
+        }
+      }
+    },
+    "hair.tea_bun.v1": {
+      "category": "hair",
+      "family": "hair.tea_bun",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "back": {
+          "file": "hair.tea_bun.v1.back.webp",
+          "sha256": "24fa72d1e2a10e3b14e503bbf57b9a49e793b1edd4aa249f8a4160d439914d41"
+        },
+        "front": {
+          "file": "hair.tea_bun.v1.front.webp",
+          "sha256": "164dda764863e8c21bb7d28b818a2f89686605af6a74e88dc3a07802906ea345"
+        },
+        "front_under_hat": {
+          "file": "hair.tea_bun.v1.front_under_hat.webp",
+          "sha256": "be3004b485e86636255ef678de58227c87b51af2d39fed38bd16b8a104aa37fa"
+        }
+      }
+    },
+    "clothes.oat_cardigan.v1": {
+      "category": "clothes",
+      "family": "clothes.oat_cardigan",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "clothes.oat_cardigan.v1.main.webp",
+          "sha256": "4eaf8b0282117f4440f0fb0c64fb4b1c28bf75ca27552a4282ad4eb972f38fc0"
+        }
+      }
+    },
+    "clothes.cloud_pajama.v1": {
+      "category": "clothes",
+      "family": "clothes.cloud_pajama",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "clothes.cloud_pajama.v1.main.webp",
+          "sha256": "ae4ad8e01acebe792f546e8a07db93e00bfd3597d6f1895b033f6c64b73aabbd"
+        }
+      }
+    },
+    "expression.happy_beam.v1": {
+      "category": "expression",
+      "family": "expression.happy_beam",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "expression.happy_beam.v1.main.webp",
+          "sha256": "b6d6de66ed4476d913c42ed9b31a87f41f838add1ea54ce7e2a73a4c79e22d95"
+        }
+      }
+    },
+    "expression.shy_blush.v1": {
+      "category": "expression",
+      "family": "expression.shy_blush",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "expression.shy_blush.v1.main.webp",
+          "sha256": "223e6ee63c4e02c28e10abee03b1bf81ebae152b91da68e49b96143192eb3cce"
+        }
+      }
+    },
+    "hat.straw_bucket.v1": {
+      "category": "hat",
+      "family": "hat.straw_bucket",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": true,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "hat.straw_bucket.v1.main.webp",
+          "sha256": "a4abddb292dfefe64188f5fc53afe50718564ff1a22d4f94469c2fc8ef2d5511"
+        }
+      }
+    },
+    "hat.bear_beanie.v1": {
+      "category": "hat",
+      "family": "hat.bear_beanie",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": true,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "hat.bear_beanie.v1.main.webp",
+          "sha256": "9c949e3ea16b1a42b0567b19746759c352c8af09785ee777fc375647705f4a52"
+        }
+      }
+    },
+    "handheld.hot_latte.v1": {
+      "category": "handheld",
+      "family": "handheld.hot_latte",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": null,
+      "layers": {
+        "main": {
+          "file": "handheld.hot_latte.v1.main.webp",
+          "sha256": "ddcbf9b298d86272c32357b0a28259c243b67bf6fd848790dc1ba2b638ba3da8"
+        }
+      }
+    },
+    "accessory.round_glasses.v1": {
+      "category": "accessory",
+      "family": "accessory.round_glasses",
+      "revision": 1,
+      "format": "webp",
+      "covers_hair_top": null,
+      "accessory_position": "face",
+      "layers": {
+        "main": {
+          "file": "accessory.round_glasses.v1.main.webp",
+          "sha256": "5cdeea0fde8c90b9378ca6de8a08aa2e5c2dae3c7cde1f52ccddfe505420f7e6"
+        }
+      }
     }
   }
 }

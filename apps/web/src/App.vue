@@ -15,9 +15,11 @@ import BottomNav from '@/components/BottomNav.vue'
 import InstallPrompt from '@/components/InstallPrompt.vue'
 import OfflineBanner from '@/components/OfflineBanner.vue'
 import { setupServiceWorker } from '@/pwa/register-sw'
+import { routeTransitionKey, useRouteTransition } from '@/router/back-navigation'
 import { useSessionStore } from '@/stores/session'
 
 const session = useSessionStore()
+const navTransition = useRouteTransition()
 const { needRefresh, offlineReady, update: applyUpdate, dismiss: dismissUpdate } = setupServiceWorker()
 
 onMounted(() => {
@@ -44,7 +46,13 @@ onMounted(() => {
     <NotificationEntry />
 
     <main class="app-main" id="main-content" tabindex="-1">
-      <RouterView />
+      <RouterView v-slot="{ Component, route }">
+        <div class="route-stage" :data-transition="navTransition">
+          <Transition :name="navTransition">
+            <component :is="Component" v-if="Component" :key="routeTransitionKey(route)" />
+          </Transition>
+        </div>
+      </RouterView>
     </main>
 
     <InstallPrompt />

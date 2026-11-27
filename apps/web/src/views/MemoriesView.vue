@@ -9,7 +9,9 @@ import { civilDateLabel } from '@/api/anniversary-rules'
 import MemoryPhotoView from '@/components/MemoryPhotoView.vue'
 import { useMemoriesStore } from '@/stores/memories'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('memories', 'us')
 const session = useSessionStore()
 const store = useMemoriesStore()
 
@@ -26,12 +28,10 @@ onMounted(() => {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">照片回忆</h1>
-        <p class="page__subtitle">按回忆的日期排列，只有你们两个人能看到。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="memories-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">照片回忆</h1>
+      <p class="subpage-header__subtitle">按回忆的日期排列，只有你们两个人能看到。</p>
     </header>
 
     <RouterLink class="btn btn--small btn--soft" :to="{ name: 'memory-deletions' }">最近删除的回忆</RouterLink>

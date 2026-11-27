@@ -1,0 +1,81 @@
+# =====================================================================
+# USapp Production Caddyfile
+# Public site: https://{$PUBLIC_DOMAIN} (auto Let's Encrypt HTTPS + HSTS)
+# Admin site:  https://localhost:8444     (VPS loopback only via SSH tunnel)
+# =====================================================================
+
+{
+	email {$ACME_EMAIL}
+}
+
+(baseline_headers) {
+	@static not path /api/*
+	header @static {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self'; manifest-src 'self'; connect-src 'self' wss://{$PUBLIC_DOMAIN}"
+	}
+}
+
+https://{$PUBLIC_DOMAIN} {
+	import baseline_headers
+
+	@hsts not path /api/*
+	header @hsts Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	request_header -X-Usapp-Admin-Surface
+
+	@hashed path /assets/* /avatars/* /icons/* /favicon.svg /apple-touch-icon.png
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	@noCache path / /index.html /sw.js /registerSW.js /manifest.webmanifest
+	header @noCache Cache-Control "no-cache"
+
+	handle /api/admin/* {
+		respond 404
+	}
+	handle /admin/* {
+		respond 404
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+https://localhost:8444 {
+	tls internal
+	import baseline_headers
+
+	request_header X-Usapp-Admin-Surface usapp-admin
+
+	redir /admin /admin/ 308
+
+	@hashed path /admin/assets/* /admin/icons/* /admin/favicon.svg
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	@noCache path /admin/ /admin/index.html /admin/sw.js /admin/manifest.webmanifest
+	header @noCache Cache-Control "no-cache"
+
+	handle /api/admin/* {
+		reverse_proxy api:8081
+	}
+
+	handle_path /admin/* {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle {
+		respond 404
+	}
+}

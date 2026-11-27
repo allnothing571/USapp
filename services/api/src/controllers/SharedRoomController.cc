@@ -116,7 +116,7 @@ class SharedRoomController : public drogon::HttpController<SharedRoomController>
         if (!ctrl::requireUser(req, reply, user) || !ctrl::parseBody(req, reply, body)) return;
         if (!body.isObject() || body.size() != 2 || !body["expected_version"].isInt() ||
             body["expected_version"].asInt() < 0 || body["expected_version"].asInt() >= 1000000000 ||
-            !body["layout"].isArray() || body["layout"].size() > 4) {
+            !body["layout"].isArray() || body["layout"].size() > 7) {
             reply(ctrl::fail(ErrorCode::ValidationError, "布局或版本无效", req)); return;
         }
         Json::StreamWriterBuilder writer;

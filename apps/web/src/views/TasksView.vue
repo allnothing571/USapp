@@ -38,10 +38,44 @@ import type { ScheduleType, Task, TaskChangeAction, TaskChangeTerms, TaskPending
 import { useSessionStore } from '@/stores/session'
 import { useSpaceStore } from '@/stores/space'
 import { type CompletionNotice, useTasksStore } from '@/stores/tasks'
+import { useSmartBack } from '@/router/back-navigation'
+
+const props = defineProps<{ section?: 'hub' | 'open' | 'publish' | 'history' }>()
+const back = useSmartBack(
+  () => (props.section === 'publish' ? 'tasks-new' : props.section === 'history' ? 'tasks-history' : 'tasks-open'),
+  'tasks',
+)
 
 const session = useSessionStore()
 const spaceStore = useSpaceStore()
 const tasksStore = useTasksStore()
+
+const isHub = computed(() => props.section === 'hub')
+const showPublish = computed(() => !props.section || props.section === 'publish')
+const showOpen = computed(() => !props.section || props.section === 'open')
+const showHistory = computed(() => !props.section || props.section === 'history')
+const showCompletionPanel = computed(() =>
+  (!props.section || props.section === 'hub' || props.section === 'open')
+  && (pendingActions.value.length > 0 || tasksStore.completionNotices.length > 0),
+)
+const showChangePanel = computed(() =>
+  (!props.section || props.section === 'hub' || props.section === 'open')
+  && (pendingChanges.value.length > 0 || tasksStore.changeNotices.length > 0),
+)
+const showDetailCard = computed(() =>
+  (!props.section || props.section === 'open' || props.section === 'history')
+  && tasksStore.detailStatus !== 'idle',
+)
+const SUBPAGE_TITLE: Record<'open' | 'publish' | 'history', string> = {
+  open: '我的任务',
+  publish: '发布新任务',
+  history: '最近 30 天记录',
+}
+const subpageTitle = computed(() =>
+  props.section === 'open' || props.section === 'publish' || props.section === 'history'
+    ? SUBPAGE_TITLE[props.section]
+    : '',
+)
 
 const me = computed(() => session.user?.id ?? null)
 
@@ -343,15 +377,82 @@ function reload(view: TaskView): void {
 
 <template>
   <section class="page">
-    <header>
+    <template v-if="!props.section">
+      <header>
+        <h1 class="page__title">任务</h1>
+        <p class="page__subtitle">给对方发布一次性、每天或每周重复、或指定日期范围的任务；完成发给你的任务即可获得奖励。</p>
+      </header>
+      <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'home' }">返回首页</RouterLink>
+    </template>
+    <header v-else-if="isHub" class="page__header">
       <h1 class="page__title">任务</h1>
-      <p class="page__subtitle">给对方发布一次性、每天或每周重复、或指定日期范围的任务；完成发给你的任务即可获得奖励。</p>
+      <p class="page__subtitle">选择查看当前任务、发布新任务或回顾最近记录。</p>
+    </header>
+    <header v-else class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="back-to-tasks">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">{{ subpageTitle }}</h1>
     </header>
 
-    <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'home' }">返回首页</RouterLink>
+    <!-- 一级门户入口 -->
+    <div v-if="isHub" class="hub-grid" data-test="tasks-hub">
+      <RouterLink class="hub-card" :to="{ name: 'tasks-open' }" data-test="hub-tasks-open">
+        <span class="hub-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="3" />
+            <path d="m8.5 12 2.5 2.5L15.5 9.5" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">我的任务</span>
+          <span class="hub-card__sub">
+            {{ openView.status === 'ready' ? `待我完成 ${toComplete.length} 项 · 我发布 ${publishedByMe.length} 项` : '查看进行中与任务详情' }}
+          </span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="openView.status === 'ready' && toComplete.length > 0" class="hub-badge hub-badge--alert">
+            待做 {{ toComplete.length }}
+          </span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+
+      <RouterLink class="hub-card" :to="{ name: 'tasks-new' }" data-test="hub-tasks-new">
+        <span class="hub-card__icon hub-card__icon--warm" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">发布任务</span>
+          <span class="hub-card__sub">为对方设定一次性、每天/每周或日期范围任务</span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="unconfirmed" class="hub-badge hub-badge--alert">待确认</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+
+      <RouterLink class="hub-card" :to="{ name: 'tasks-history' }" data-test="hub-tasks-history">
+        <span class="hub-card__icon hub-card__icon--green" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 8v4l2.5 2.5" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">最近 30 天记录</span>
+          <span class="hub-card__sub">查看近期已完成、已过期或已关闭的任务</span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="historyView.status === 'ready'" class="hub-badge">{{ historyView.items.length }} 条</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+    </div>
 
     <!-- 发布 -->
-    <div class="card">
+    <div v-if="showPublish" class="card">
       <h2 class="card__title">发布给对方</h2>
       <form class="stack" @submit.prevent="submit()">
         <div class="field">
@@ -462,7 +563,7 @@ function reload(view: TaskView): void {
 
     <!-- 完成：结果未确认的动作与完成提示（与列表成员无关） -->
     <div
-      v-if="pendingActions.length || tasksStore.completionNotices.length"
+      v-if="showCompletionPanel"
       class="card"
       aria-live="polite"
       data-test="completion-panel"
@@ -500,7 +601,7 @@ function reload(view: TaskView): void {
     </div>
 
     <!-- 详情 -->
-    <div v-if="tasksStore.detailStatus !== 'idle'" class="card" aria-live="polite" data-test="task-detail">
+    <div v-if="showDetailCard" class="card" aria-live="polite" data-test="task-detail">
       <h2 class="card__title">任务详情</h2>
       <p v-if="tasksStore.detailStatus === 'loading'" class="card__hint">加载中…</p>
       <p v-else-if="tasksStore.detailStatus === 'error'" class="hint hint--error" role="alert">
@@ -646,7 +747,7 @@ function reload(view: TaskView): void {
     </div>
 
     <!-- 修改与取消：结果未确认的动作与提示（与列表成员无关） -->
-    <div v-if="pendingChanges.length || tasksStore.changeNotices.length" class="card" aria-live="polite"
+    <div v-if="showChangePanel" class="card" aria-live="polite"
       data-test="change-panel">
       <h2 class="card__title">修改与取消</h2>
       <ul v-if="pendingChanges.length" class="list">
@@ -674,7 +775,7 @@ function reload(view: TaskView): void {
     </div>
 
     <!-- 进行中 -->
-    <div class="card" :aria-busy="openView.status === 'loading'" data-test="open-view">
+    <div v-if="showOpen" class="card" :aria-busy="openView.status === 'loading'" data-test="open-view">
       <h2 class="card__title">进行中</h2>
       <p v-if="openView.status === 'loading' || openView.status === 'idle'" class="card__hint">加载中…</p>
       <template v-else-if="openView.status === 'error'">
@@ -744,7 +845,7 @@ function reload(view: TaskView): void {
     </div>
 
     <!-- 最近 30 天 -->
-    <div class="card" :aria-busy="historyView.status === 'loading'" data-test="history-view">
+    <div v-if="showHistory" class="card" :aria-busy="historyView.status === 'loading'" data-test="history-view">
       <h2 class="card__title">最近 30 天</h2>
       <p v-if="historyView.status === 'loading' || historyView.status === 'idle'" class="card__hint">加载中…</p>
       <template v-else-if="historyView.status === 'error'">

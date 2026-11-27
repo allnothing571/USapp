@@ -17,8 +17,10 @@ import AnniversaryForm from '@/components/AnniversaryForm.vue'
 import ReminderControls from '@/components/ReminderControls.vue'
 import { useAnniversariesStore } from '@/stores/anniversaries'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ id: string }>()
+const back = useSmartBack('anniversary-detail', 'anniversaries')
 
 const session = useSessionStore()
 const store = useAnniversariesStore()
@@ -113,12 +115,12 @@ const DECISION_TEXT = { approved: '已同意', rejected: '已拒绝', withdrawn:
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">纪念日</h1>
-        <p class="page__subtitle">按北京时间计算天数。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="anniversary-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">纪念日</h1>
+      <RouterLink v-if="back.group !== 'anniversaries'" class="btn btn--small btn--soft"
+        :to="{ name: 'anniversaries' }" data-test="all-anniversaries-link">全部纪念日</RouterLink>
+      <p class="subpage-header__subtitle">按北京时间计算天数。</p>
     </header>
 
     <div class="card stack" data-test="anniversary-detail" aria-live="polite"

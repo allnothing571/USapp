@@ -1302,6 +1302,15 @@ int main() {
                 CHECK_NOT_CONTAINS(text, "wallet_");
                 continue;
             }
+            if (name == "0064_shared_room_free_layout.sql") {
+                CHECK_EQ(text.find("SECURITY DEFINER"), text.rfind("SECURITY DEFINER"));
+                CHECK_CONTAINS(text, "usapp_shared_room_save(p_user uuid, p_version integer, p_layout jsonb)");
+                CHECK_CONTAINS(text, "RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+                CHECK_CONTAINS(text, "FROM PUBLIC, usapp_push;");
+                CHECK_NOT_CONTAINS(text, "memory_texts");
+                CHECK_NOT_CONTAINS(text, "wallet_");
+                continue;
+            }
             CHECK_NOT_CONTAINS(text, "SECURITY DEFINER");
         }
         const auto appConfig = readFileContent(repoRoot / "services" / "api" / "src" / "config" / "AppConfig.cc");

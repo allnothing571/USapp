@@ -40,9 +40,14 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      ...['home', 'tasks', 'rewards', 'us', 'me', 'login', 'space-create', 'notifications'].map((name) => ({ path: `/${name}`, name, component: Blank })),
+      ...['home', 'tasks', 'rewards', 'us', 'me', 'login', 'space-create', 'notifications', 'shared-room'].map((name) => ({ path: `/${name}`, name, component: Blank })),
+      { path: '/tasks/open', name: 'tasks-open', component: Blank },
+      { path: '/tasks/new', name: 'tasks-new', component: Blank },
+      { path: '/rewards/shop', name: 'rewards-shop', component: Blank },
+      { path: '/us/messages', name: 'messages', component: Blank },
       { path: '/us/messages/:id', name: 'message-detail', component: Blank },
       { path: '/us/anniversaries/:id', name: 'anniversary-detail', component: Blank },
+      { path: '/me/space', name: 'me-space', component: Blank },
     ],
   })
 }
@@ -101,23 +106,30 @@ describe('bottom navigation', () => {
   })
 })
 
-describe('P2-1 Us destination', () => {
-  it('stays visible on a message detail page and marks 我们 as the only current item', async () => {
+describe('Level-1 hub only navigation', () => {
+  it('hides BottomNav on all secondary sub-pages while keeping it on level-1 hubs', async () => {
     useSessionStore().applyBootstrap(memberSnapshot())
     const { router, w } = await mountNav('/us')
     expect(w.find('[data-test="nav-us"]').attributes('aria-current')).toBe('page')
-    await router.push('/us/messages/m1')
+    for (const subPath of [
+      '/us/messages',
+      '/us/messages/m1',
+      '/us/anniversaries/a1',
+      '/tasks/open',
+      '/tasks/new',
+      '/rewards/shop',
+      '/me/space',
+      '/shared-room',
+      '/notifications',
+    ]) {
+      await router.push(subPath)
+      await flushPromises()
+      expect(w.find('nav').exists(), `expected BottomNav hidden on ${subPath}`).toBe(false)
+    }
+    await router.push('/tasks')
     await flushPromises()
     expect(w.find('nav').exists()).toBe(true)
-    expect(w.find('[data-test="nav-us"]').attributes('aria-current')).toBe('page')
-    expect(w.find('[data-test="nav-us"]').classes()).toContain('bottom-nav__item--active')
-    expect(w.findAll('[aria-current="page"]')).toHaveLength(1)
-    // P2-2: the anniversary detail also belongs to Us.
-    await router.push('/us/anniversaries/a1')
-    await flushPromises()
-    expect(w.find('nav').exists()).toBe(true)
-    expect(w.find('[data-test="nav-us"]').attributes('aria-current')).toBe('page')
-    expect(w.findAll('[aria-current="page"]')).toHaveLength(1)
+    expect(w.find('[data-test="nav-tasks"]').attributes('aria-current')).toBe('page')
   })
 })
 

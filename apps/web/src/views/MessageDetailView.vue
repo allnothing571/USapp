@@ -10,8 +10,10 @@ import { REACTION_EMOJIS } from '@/api/reaction-rules'
 import NotifyPartnerToggle from '@/components/NotifyPartnerToggle.vue'
 import { useMessagesStore } from '@/stores/messages'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ id: string }>()
+const back = useSmartBack('message-detail', 'messages')
 
 const session = useSessionStore()
 const messages = useMessagesStore()
@@ -80,9 +82,11 @@ async function retry(): Promise<void> {
 
 <template>
   <section class="page">
-    <header class="page-heading">
-      <h1 class="page__title">留言详情</h1>
-      <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'us' }" data-test="back-to-us">返回留言板</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="back-to-us">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">留言详情</h1>
+      <RouterLink v-if="back.group !== 'messages'" class="btn btn--small btn--soft" :to="{ name: 'messages' }"
+        data-test="all-messages-link">全部留言</RouterLink>
     </header>
 
     <div class="card stack" data-test="message-detail" aria-live="polite">

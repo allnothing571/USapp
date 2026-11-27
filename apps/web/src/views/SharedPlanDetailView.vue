@@ -8,8 +8,10 @@ import { useMemoriesStore } from '@/stores/memories'
 import { useMediaCapabilityStore } from '@/stores/media-capability'
 import { useSessionStore } from '@/stores/session'
 import { isPlanId, useSharedPlansStore } from '@/stores/shared-plans'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ id: string }>()
+const back = useSmartBack('shared-plan-detail', 'shared-plans')
 const session = useSessionStore()
 const store = useSharedPlansStore()
 const memories = useMemoriesStore()
@@ -87,9 +89,11 @@ function convert(terms: MemoryTerms): void {
 
 <template>
   <section class="page">
-    <header class="row">
-      <h1 class="page__title spacer">计划详情</h1>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'shared-plans' }">返回计划</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="plan-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">计划详情</h1>
+      <RouterLink v-if="back.group !== 'shared-plans'" class="btn btn--small btn--soft" :to="{ name: 'shared-plans' }"
+        data-test="all-plans-link">全部计划</RouterLink>
     </header>
     <p v-if="!valid" class="hint hint--error" role="alert">计划不存在。</p>
     <p v-else-if="state?.loading && !plan" class="card__hint">加载中…</p>

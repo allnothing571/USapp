@@ -24,8 +24,10 @@ import PhotoDeletionNotices from '@/components/PhotoDeletionNotices.vue'
 import { useAlbumsStore, type AlbumAction } from '@/stores/albums'
 import { useMediaCapabilityStore } from '@/stores/media-capability'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ id: string }>()
+const back = useSmartBack('album-detail', 'albums')
 
 const session = useSessionStore()
 const store = useAlbumsStore()
@@ -174,11 +176,11 @@ function describeAction(action: AlbumAction): string {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">共享相册</h1>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'albums' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="album-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">共享相册</h1>
+      <RouterLink v-if="back.group !== 'albums'" class="btn btn--small btn--soft" :to="{ name: 'albums' }"
+        data-test="all-albums-link">全部相册</RouterLink>
     </header>
 
     <div class="card stack" data-test="album-detail" aria-live="polite" :aria-busy="store.detail.status === 'loading'">

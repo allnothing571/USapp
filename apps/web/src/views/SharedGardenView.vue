@@ -4,7 +4,9 @@ import { describeError, errorCodeOf } from '@/api/error-messages'
 import { getSharedGarden, waterSharedGarden, type SharedGarden } from '@/api/shared-garden'
 import { GARDEN_STAGES, gardenStageIndex } from '@/shared-garden-growth'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('shared-garden', 'home')
 const session = useSessionStore()
 const garden = ref<SharedGarden | null>(null)
 const busy = ref(false)
@@ -156,7 +158,8 @@ onBeforeUnmount(() => {
 <template>
   <section class="shared-garden" aria-labelledby="garden-title">
     <header class="garden-heading scene-page-heading">
-      <RouterLink class="scene-back" :to="{ name: 'shared-room' }" aria-label="返回小房间">‹</RouterLink>
+      <RouterLink class="scene-back" :to="back.to" :aria-label="`返回${back.label}`" :title="`返回${back.label}`"
+        data-test="garden-back">‹</RouterLink>
       <h1 id="garden-title">共享花园</h1>
       <button type="button" class="btn btn--ghost btn--small" :disabled="busy" @click="refresh()">刷新花园</button>
     </header>
@@ -186,7 +189,7 @@ onBeforeUnmount(() => {
           :disabled="busy || garden.watered_today" @click="refresh(garden.watering_date)">
           {{ garden.watered_today ? '今日已浇水' : busy ? '处理中…' : '给植物浇水' }}
         </button>
-        <RouterLink class="garden-records" :to="{ name: 'shared-garden-history' }">浇水记录</RouterLink>
+        <RouterLink class="btn btn--small btn--soft garden-records" :to="{ name: 'shared-garden-history' }">浇水记录</RouterLink>
       </section>
 
       <section class="garden-progress card card--soft" aria-labelledby="garden-growth-title">
@@ -257,7 +260,7 @@ onBeforeUnmount(() => {
 .garden-feedback { margin: .45rem 0; text-align: center; font-size: .9rem; color: var(--green); }
 .garden-water, .garden-water:hover { width: 100%; background: var(--green); color: white; }
 .garden-water--done:disabled { background: var(--green-soft); color: var(--green); opacity: 1; }
-.garden-records { display: block; width: fit-content; margin: .58rem auto 0; padding: .22rem .6rem; text-underline-offset: .2em; }
+.garden-records { display: flex; width: fit-content; margin: .65rem auto 0; text-decoration: none; }
 .garden-progress .garden-today-heading { margin-bottom: .35rem; }
 .garden-progress p { margin: 0; }
 .garden-progress progress { display: block; width: 100%; margin: .3rem 0 .55rem; accent-color: var(--green); }

@@ -13,7 +13,9 @@ import PartnerNoticeToggle from '@/components/PartnerNoticeToggle.vue'
 import { useMemoriesStore } from '@/stores/memories'
 import { useMediaCapabilityStore } from '@/stores/media-capability'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('memory-new', 'memories')
 const session = useSessionStore()
 const store = useMemoriesStore()
 const router = useRouter()
@@ -57,12 +59,10 @@ async function retryCreate(): Promise<void> {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">添加回忆</h1>
-        <p class="page__subtitle">1 到 9 张照片。照片确认可用后才能保存。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'memories' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="memory-new-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">添加回忆</h1>
+      <p class="subpage-header__subtitle">1 到 9 张照片。照片确认可用后才能保存。</p>
     </header>
 
     <div class="card stack" data-test="memory-new">

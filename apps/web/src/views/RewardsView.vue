@@ -20,10 +20,46 @@ import { buildRewardTerms, type RewardForm } from '@/api/task-rules'
 import type { RedemptionMode, Redemption, RedemptionTransition, RewardProduct } from '@/api/types'
 import { useSessionStore } from '@/stores/session'
 import { type RewardTarget, useRewardsStore } from '@/stores/rewards'
+import { useWalletStore } from '@/stores/wallet'
+import { useSmartBack } from '@/router/back-navigation'
+
+const props = defineProps<{ section?: 'hub' | 'shop' | 'new' | 'mine' | 'records' }>()
+const back = useSmartBack(
+  () => (props.section === 'new' ? 'rewards-new' : props.section === 'mine' ? 'rewards-mine' : props.section === 'records' ? 'rewards-records' : 'rewards-shop'),
+  'rewards',
+)
 
 const session = useSessionStore()
 const rewards = useRewardsStore()
+const wallet = useWalletStore()
 const me = computed(() => session.user?.id ?? null)
+
+const isHub = computed(() => props.section === 'hub')
+const showPanel = computed(() =>
+  (!props.section || props.section === 'hub' || props.section === 'shop' || props.section === 'mine' || props.section === 'records')
+  && (pendingActions.value.length > 0 || rewards.notices.length > 0),
+)
+const showEditDraft = computed(() => (!props.section || props.section === 'mine') && Boolean(draft.value))
+const showForMe = computed(() => !props.section || props.section === 'shop')
+const showRedeemConfirm = computed(() => (!props.section || props.section === 'shop') && Boolean(redeemConfirm.value))
+const showTransitionConfirm = computed(() => (!props.section || props.section === 'records') && Boolean(transitionConfirm.value))
+const showRedemptions = computed(() => !props.section || props.section === 'records')
+const showMine = computed(() => !props.section || props.section === 'mine')
+const showCreate = computed(() => !props.section || props.section === 'new')
+const SUBPAGE_TITLE: Record<'shop' | 'new' | 'mine' | 'records', string> = {
+  shop: '兑换商店',
+  new: '上架新奖励',
+  mine: '我上架的奖励',
+  records: '兑换与履约记录',
+}
+const subpageTitle = computed(() =>
+  props.section === 'shop' || props.section === 'new' || props.section === 'mine' || props.section === 'records'
+    ? SUBPAGE_TITLE[props.section]
+    : '',
+)
+const walletFlowerText = computed(() =>
+  wallet.status === 'ready' && wallet.balances ? String(wallet.balances.flower) : '—',
+)
 
 const MODE_LABEL: Record<RedemptionMode, string> = { direct: '直接兑换', request: '申请兑换' }
 
@@ -68,6 +104,13 @@ function redemptionBusy(id: string): boolean {
 const forMe = computed(() => rewards.products.filter((p) => p.owner_id === me.value && p.status === 'active'))
 const mine = computed(() => rewards.products.filter((p) => p.creator_id === me.value))
 const pendingActions = computed(() => Object.values(rewards.actions))
+const pendingRedemptionCount = computed(() =>
+  rewards.redemptions.filter((r) =>
+    r.status === 'pending_confirmation'
+    || (r.status === 'pending_fulfillment' && r.creator_id === me.value)
+    || Boolean(r.pending_cancellation),
+  ).length,
+)
 
 function latest(id: string): RewardProduct | undefined {
   return rewards.products.find((p) => p.id === id)
@@ -106,6 +149,7 @@ watch(
     if (id && session.isAuthenticated) {
       void rewards.load()
       void rewards.loadRedemptions()
+      if (props.section) void wallet.load()
     }
   },
 )
@@ -113,6 +157,7 @@ onMounted(() => {
   if (session.isAuthenticated) {
     void rewards.load()
     void rewards.loadRedemptions()
+    if (props.section) void wallet.load()
   }
 })
 
@@ -203,14 +248,99 @@ function archiveDrift(product: RewardProduct): string {
 
 <template>
   <section class="page">
-    <header>
-      <h1 class="page__title">奖励商店</h1>
-      <p class="page__subtitle">为对方上架用小红花兑换的奖励，兑换对方为你准备的奖励；申请兑换将在之后的版本提供。</p>
+    <template v-if="!props.section">
+      <header>
+        <h1 class="page__title">奖励商店</h1>
+        <p class="page__subtitle">为对方上架用小红花兑换的奖励，兑换对方为你准备的奖励；申请兑换将在之后的版本提供。</p>
+      </header>
+      <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'home' }">返回首页</RouterLink>
+    </template>
+    <header v-else-if="isHub" class="page__header">
+      <div class="row" style="justify-content: space-between;">
+        <h1 class="page__title">奖励</h1>
+        <span class="wallet-pill" data-test="rewards-wallet">小红花 {{ walletFlowerText }}</span>
+      </div>
+      <p class="page__subtitle">兑换对方的心意、管理履约记录或上架新的奖励。</p>
+    </header>
+    <header v-else class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="back-to-rewards">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">{{ subpageTitle }}</h1>
+      <span v-if="props.section === 'shop'" class="wallet-pill" data-test="rewards-shop-wallet">小红花 {{ walletFlowerText }}</span>
     </header>
 
-    <RouterLink class="btn btn--small btn--ghost" :to="{ name: 'home' }">返回首页</RouterLink>
+    <!-- 一级门户入口 -->
+    <div v-if="isHub" class="hub-grid" data-test="rewards-hub">
+      <RouterLink class="hub-card" :to="{ name: 'rewards-shop' }" data-test="hub-rewards-shop">
+        <span class="hub-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="8" width="17" height="4" rx="1" />
+            <path d="M5.5 12v8h13v-8" />
+            <path d="M12 8v12" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">兑换商店</span>
+          <span class="hub-card__sub">浏览并兑换对方为你准备的心愿奖励</span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="rewards.status === 'ready'" class="hub-badge">{{ forMe.length }} 件可兑</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
 
-    <div v-if="pendingActions.length || rewards.notices.length" class="card" aria-live="polite" data-test="reward-panel">
+      <RouterLink class="hub-card" :to="{ name: 'rewards-records' }" data-test="hub-rewards-records">
+        <span class="hub-card__icon hub-card__icon--warm" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 4h12v16l-3-2-3 2-3-2-3 2V4Z" />
+            <path d="M9.5 9.5h5" />
+            <path d="M9.5 13h5" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">兑换与履约记录</span>
+          <span class="hub-card__sub">同意申请、确认已履约或处理取消协商</span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="pendingRedemptionCount > 0" class="hub-badge hub-badge--alert">待处理 {{ pendingRedemptionCount }}</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+
+      <RouterLink class="hub-card" :to="{ name: 'rewards-mine' }" data-test="hub-rewards-mine">
+        <span class="hub-card__icon hub-card__icon--green" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h16v12H4z" />
+            <path d="M8 7V5h8v2" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">我上架的奖励</span>
+          <span class="hub-card__sub">查看、修改价格或下架你准备的奖励</span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="rewards.status === 'ready'" class="hub-badge">{{ mine.length }} 件</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+
+      <RouterLink class="hub-card" :to="{ name: 'rewards-new' }" data-test="hub-rewards-new">
+        <span class="hub-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">上架新奖励</span>
+          <span class="hub-card__sub">为对方新增一件用小红花兑换的小心愿</span>
+        </span>
+        <span class="hub-card__meta">
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+    </div>
+
+    <div v-if="showPanel" class="card" aria-live="polite" data-test="reward-panel">
       <ul v-if="pendingActions.length" class="list">
         <li v-for="action in pendingActions" :key="action.id" class="list__item">
           <div class="list__main">
@@ -235,7 +365,7 @@ function archiveDrift(product: RewardProduct): string {
     </div>
 
     <!-- 修改草稿：绑定到开始修改时的商品与版本快照，不随列表刷新改变目标 -->
-    <div v-if="draft" class="card" data-test="edit-draft">
+    <div v-if="showEditDraft && draft" class="card" data-test="edit-draft">
       <h2 class="card__title">修改「{{ draft.title }}」（第 {{ draft.version }} 版）</h2>
       <form class="stack" data-test="edit-form" @submit.prevent="submitEdit()">
         <input v-model="editForm.title" class="field__input" type="text" aria-label="名称" data-test="edit-title" />
@@ -257,7 +387,7 @@ function archiveDrift(product: RewardProduct): string {
       </form>
     </div>
 
-    <div class="card" data-test="for-me">
+    <div v-if="showForMe" class="card" data-test="for-me">
       <h2 class="card__title">对方为我准备的</h2>
       <p v-if="rewards.status === 'loading' || rewards.status === 'idle'" class="card__hint">加载中…</p>
       <template v-else-if="rewards.status === 'error'">
@@ -280,7 +410,7 @@ function archiveDrift(product: RewardProduct): string {
     </div>
 
     <!-- 兑换确认：价格与版本取自点击“兑换”时的快照 -->
-    <div v-if="redeemConfirm" class="card confirmation-card" data-test="redeem-confirm">
+    <div v-if="showRedeemConfirm && redeemConfirm" class="card confirmation-card" data-test="redeem-confirm">
       <h2 class="card__title">确认兑换</h2>
       <p v-if="redeemConfirm.mode === 'direct'" class="card__hint">将扣除 <strong>{{ redeemConfirm.price }}</strong> 朵小红花兑换「{{ redeemConfirm.title }}」。扣除后由对方履约。</p>
       <p v-else class="card__hint">申请「{{ redeemConfirm.title }}」，价格 {{ redeemConfirm.price }} 朵小红花。现在不扣款、不预留，待对方同意时扣款。</p>
@@ -293,7 +423,7 @@ function archiveDrift(product: RewardProduct): string {
       </div>
     </div>
 
-    <div v-if="transitionConfirm" class="card confirmation-card" data-test="transition-confirm">
+    <div v-if="showTransitionConfirm && transitionConfirm" class="card confirmation-card" data-test="transition-confirm">
       <h2 class="card__title">{{ TRANSITION_LABEL[transitionConfirm.kind] }}</h2>
       <p>「{{ transitionConfirm.title }}」 · {{ transitionConfirm.price }} 朵小红花</p>
       <p v-if="transitionConfirm.kind === 'confirm'" class="card__hint">从申请方扣除快照价格；余额不足时申请保持待确认。</p>
@@ -303,7 +433,7 @@ function archiveDrift(product: RewardProduct): string {
       <button class="btn btn--small btn--ghost" type="button" @click="transitionConfirm = null">返回</button>
     </div>
 
-    <div class="card" data-test="redemptions">
+    <div v-if="showRedemptions" class="card" data-test="redemptions">
       <h2 class="card__title">兑换记录</h2>
       <p v-if="rewards.redemptionStatus === 'loading' || rewards.redemptionStatus === 'idle'" class="card__hint">加载中…</p>
       <template v-else-if="rewards.redemptionStatus === 'error'">
@@ -351,7 +481,7 @@ function archiveDrift(product: RewardProduct): string {
       </button>
     </div>
 
-    <div class="card" data-test="mine">
+    <div v-if="showMine" class="card" data-test="mine">
       <h2 class="card__title">我为对方上架的</h2>
       <p v-if="rewards.status === 'ready' && mine.length === 0" class="card__hint">还没有上架奖励。</p>
       <ul v-else class="list">
@@ -383,7 +513,7 @@ function archiveDrift(product: RewardProduct): string {
       </div>
     </div>
 
-    <div class="card">
+    <div v-if="showCreate" class="card">
       <h2 class="card__title">上架给对方</h2>
       <form class="stack" data-test="create-form" @submit.prevent="submitCreate()">
         <div class="field">

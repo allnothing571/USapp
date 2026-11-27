@@ -7,8 +7,13 @@ import PhotoDeletionNotices from '@/components/PhotoDeletionNotices.vue'
 import { useMemoryDeletionsStore } from '@/stores/memory-deletions'
 import { useMediaDeletionsStore } from '@/stores/media-deletions'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
 const props = defineProps<{ kind: 'recovery' | 'retained' }>()
+const back = useSmartBack(
+  () => (props.kind === 'recovery' ? 'memory-deletions' : 'retained-photos'),
+  'us-recovery',
+)
 const store = useMemoryDeletionsStore()
 const photos = useMediaDeletionsStore()
 const session = useSessionStore()
@@ -23,9 +28,9 @@ onBeforeUnmount(() => store.close())
 
 <template>
   <section class="page">
-    <header class="row">
-      <h1 class="page__title spacer">{{ kind === 'recovery' ? '最近删除的回忆' : '保留的照片' }}</h1>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="memory-recovery-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">{{ kind === 'recovery' ? '最近删除的回忆' : '保留的照片' }}</h1>
     </header>
     <p class="card__hint">{{ kind === 'recovery' ? '这里只显示你自己删除且当前可以撤销的轮次，以服务器处理时的状态为准。' :
       '所属回忆已删除，这些由你上传的照片仍保留并占用空间。原绑定不变，无法加入其他回忆或相册。' }}</p>

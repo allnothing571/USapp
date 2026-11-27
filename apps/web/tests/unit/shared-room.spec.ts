@@ -1,15 +1,27 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import { getWallet } from '@/api/wallet'
 import { getAvatarAppearance } from '@/api/avatar'
-import { buyRoomFurniture, connectSharedRoom, getSharedRoom, isSharedRoom, saveSharedRoom, setRoomAvatarSharing, type SharedRoom } from '@/api/shared-room'
-import { mergeRoomLayout, ROOM_LAYOUT_PRESETS } from '@/shared-room-layout'
+import { listMessages } from '@/api/messages'
+import {
+  buyRoomFurniture,
+  changeRoomPosition,
+  connectSharedRoom,
+  getRoomPositions,
+  getSharedRoom,
+  isSharedRoom,
+  saveSharedRoom,
+  setRoomAvatarSharing,
+  type SharedRoom,
+} from '@/api/shared-room'
+import { DEFAULT_ITEM_SPOTS, mergeRoomLayout, ROOM_LAYOUT_PRESETS } from '@/shared-room-layout'
 import { useSessionStore } from '@/stores/session'
 import SharedRoomView from '@/views/SharedRoomView.vue'
 
 vi.mock('@/api/wallet', () => ({ getWallet: vi.fn() }))
+vi.mock('@/api/messages', () => ({ listMessages: vi.fn() }))
 
 vi.mock('@/api/avatar', async importOriginal => ({
   ...await importOriginal<typeof import('@/api/avatar')>(),
@@ -19,6 +31,8 @@ vi.mock('@/api/shared-room', async importOriginal => ({
   ...await importOriginal<typeof import('@/api/shared-room')>(),
   connectSharedRoom: vi.fn(),
   buyRoomFurniture: vi.fn(),
+  changeRoomPosition: vi.fn(),
+  getRoomPositions: vi.fn(),
   getSharedRoom: vi.fn(),
   saveSharedRoom: vi.fn(),
   setRoomAvatarSharing: vi.fn(),
@@ -48,21 +62,33 @@ function button(wrapper: Awaited<ReturnType<typeof setup>>['wrapper'], label: st
 
 beforeEach(() => {
   vi.resetAllMocks()
+  window.localStorage.clear()
   vi.mocked(getAvatarAppearance).mockResolvedValue(null)
   vi.mocked(getSharedRoom).mockResolvedValue(empty)
   vi.mocked(saveSharedRoom).mockResolvedValue(1)
   vi.mocked(getWallet).mockResolvedValue({ wallet: { flower: 0, sunshine: 100 } })
+  vi.mocked(listMessages).mockResolvedValue({ messages: [], next_cursor: null })
+  vi.mocked(changeRoomPosition).mockResolvedValue(undefined)
+  vi.mocked(getRoomPositions).mockResolvedValue({ side: 'left', paired: true, pending: null })
 })
 
 describe('shared room live and purchases', () => {
-  it('requires a choice when concurrent placements exceed room capacity', () => {
+  it('merges non-overlapping concurrent placements beyond 4 items and flags overlapping non-rug items', () => {
     const base = ROOM_LAYOUT_PRESETS[0].layout
-    const mine = [...base, { item: 'bookshelf', x: 3, y: 0 }] as SharedRoom['layout']
-    const theirs = [...base, { item: 'armchair', x: 3, y: 1 }] as SharedRoom['layout']
-    expect(mergeRoomLayout(base, mine, theirs).conflicts).toContainEqual({
-      kind: 'capacity', items: ['bookshelf', 'armchair'],
-    })
-    expect(mergeRoomLayout(base, mine, theirs, { bookshelf: 'latest' }).layout).toEqual(theirs)
+    const mine = [...base, { item: 'bookshelf', x: 760, y: 240 }] as SharedRoom['layout']
+    const theirs = [...base, { item: 'armchair', x: 700, y: 560 }] as SharedRoom['layout']
+    expect(mergeRoomLayout(base, mine, theirs).layout).toEqual([
+      { item: 'table', x: 500, y: 600 },
+      { item: 'lamp', x: 210, y: 280 },
+      { item: 'rug', x: 500, y: 640 },
+      { item: 'bookshelf', x: 760, y: 240 },
+      { item: 'armchair', x: 700, y: 560 },
+    ])
+
+    const closeDraft = [...base, { item: 'bookshelf', x: 700, y: 560 }] as SharedRoom['layout']
+    expect(mergeRoomLayout(base, closeDraft, theirs).conflicts).toEqual([
+      { kind: 'overlap', first: { item: 'bookshelf', x: 700, y: 560 }, second: { item: 'armchair', x: 700, y: 560 } },
+    ])
   })
 
   it('shares presence only on opt-in, syncs updates, and saves with the current version', async () => {
@@ -79,19 +105,18 @@ describe('shared room live and purchases', () => {
       await wrapper.get('section[aria-label="房间协作"] input').setValue(true)
       expect(initial.close).toHaveBeenCalledOnce()
       expect(connectSharedRoom).toHaveBeenLastCalledWith(true)
-      const remote: SharedRoom = { ...empty, version: 1, layout: [{ item: 'rug', x: 0, y: 0 }] }
+      const remote: SharedRoom = { ...empty, version: 1, layout: [{ item: 'rug', x: 500, y: 640 }] }
       vi.mocked(getSharedRoom).mockResolvedValue(remote)
       optedIn.onmessage?.({ data: 'ready' })
       optedIn.onmessage?.({ data: 'peer-online' })
       await flushPromises()
       expect(wrapper.text()).toContain('对方在房间')
-      expect(wrapper.find('[aria-label="第1排第1格 地毯"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
       await wrapper.findAll('section[aria-label="房间协作"] input')[1].setValue(true)
       vi.mocked(saveSharedRoom).mockResolvedValue(2)
       await button(wrapper, '小桌').trigger('click')
-      await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
       await flushPromises()
-      expect(saveSharedRoom).toHaveBeenCalledWith(1, [...remote.layout, { item: 'table', x: 1, y: 0 }])
+      expect(saveSharedRoom).toHaveBeenCalledWith(1, [...remote.layout, { item: 'table', ...DEFAULT_ITEM_SPOTS.table }])
       visibility.mockReturnValue(true)
       document.dispatchEvent(new Event('visibilitychange'))
       expect(optedIn.close).toHaveBeenCalledOnce()
@@ -138,7 +163,7 @@ describe('shared room automatic sync', () => {
       slots: { hair: null, clothes: null, expression: null, hat: null, handheld: null, accessory: null },
     },
   }
-  const latest: SharedRoom = { ...empty, version: 1, layout: [{ item: 'rug', x: 0, y: 2 }] }
+  const latest: SharedRoom = { ...empty, version: 1, layout: [{ item: 'rug', x: 500, y: 650 }] }
   let view: Awaited<ReturnType<typeof setup>>['wrapper'] | undefined
   let hidden: boolean
 
@@ -159,12 +184,11 @@ describe('shared room automatic sync', () => {
     const { wrapper } = await setup()
     view = wrapper
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     await button(wrapper, '撤销').trigger('click')
     expect(button(wrapper, '重做').element.disabled).toBe(false)
     vi.mocked(getSharedRoom).mockResolvedValue(latest)
     await vi.advanceTimersByTimeAsync(15_000)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     expect(button(wrapper, '重做').element.disabled).toBe(true)
     expect(wrapper.get('[role="status"]').text()).toBe('已同步最新布局。')
     expect(getAvatarAppearance).toHaveBeenCalledTimes(1)
@@ -175,18 +199,17 @@ describe('shared room automatic sync', () => {
     const { wrapper } = await setup()
     view = wrapper
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
-    const rug = { item: 'rug', x: 1, y: 0 } as const
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [rug] })
+    const table = { item: 'table', x: 240, y: 300 } as const
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [table] })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
-    await button(wrapper, '我的布置 · 不摆放').trigger('click')
+    await button(wrapper, '共享布局 · 后排偏左').trigger('click')
     expect(button(wrapper, '应用到草稿').element.disabled).toBe(false)
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 2, layout: [{ ...rug, x: 2 }] })
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 2, layout: [{ item: 'rug', x: 500, y: 650 }] })
     await vi.advanceTimersByTimeAsync(15_000)
     expect(wrapper.find('.room-resolution').exists()).toBe(false)
     expect(wrapper.get('[role="alert"]').text()).toContain('共享布局再次更新')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     expect(saveSharedRoom).not.toHaveBeenCalled()
   })
@@ -195,16 +218,15 @@ describe('shared room automatic sync', () => {
     const { wrapper } = await setup()
     view = wrapper
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     vi.mocked(getSharedRoom).mockResolvedValue(latest)
     await vi.advanceTimersByTimeAsync(15_000)
     expect(wrapper.get('[role="status"]').text()).toContain('有新的共享布局')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(false)
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     expect(button(wrapper, '保存布局').element.disabled).toBe(false)
     expect(saveSharedRoom).not.toHaveBeenCalled()
   })
@@ -224,7 +246,7 @@ describe('shared room automatic sync', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
     expect(getSharedRoom).toHaveBeenCalledTimes(2)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     expect(wrapper.find('[label="对方的形象"]').exists()).toBe(false)
   })
 
@@ -236,15 +258,14 @@ describe('shared room automatic sync', () => {
     await vi.advanceTimersByTimeAsync(15_000)
     const signal = vi.mocked(getSharedRoom).mock.lastCall?.[0]
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
     expect(signal?.aborted).toBe(true)
-    expect(saveSharedRoom).toHaveBeenCalledWith(0, [{ item: 'table', x: 1, y: 0 }])
+    expect(saveSharedRoom).toHaveBeenCalledWith(0, [{ item: 'table', ...DEFAULT_ITEM_SPOTS.table }])
     complete(latest)
     await flushPromises()
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
   })
 
   it('times out an unanswered poll and retries on the next interval', async () => {
@@ -260,7 +281,7 @@ describe('shared room automatic sync', () => {
     expect(wrapper.find('[label="对方的形象"]').exists()).toBe(false)
     vi.mocked(getSharedRoom).mockResolvedValue(latest)
     await vi.advanceTimersByTimeAsync(7_000)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
   })
 
   it('clears the room and stops polling after access is lost', async () => {
@@ -276,55 +297,55 @@ describe('shared room automatic sync', () => {
 
 describe('shared room', () => {
   it('resolves a contested item while keeping both members’ compatible edits', async () => {
-    vi.mocked(getSharedRoom).mockResolvedValueOnce({ ...empty, version: 1, layout: [{ item: 'table', x: 0, y: 0 }] })
+    vi.mocked(getSharedRoom).mockResolvedValueOnce({ ...empty, version: 1, layout: [{ item: 'table', x: 200, y: 220 }] })
     const { wrapper } = await setup()
     await button(wrapper, '布置').trigger('click')
-    await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    await wrapper.get('[data-test="room-item-table"]').trigger('click')
+    await wrapper.get('[data-test="room-floor"]').trigger('click', { clientX: 400, clientY: 320 })
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 40%')
     await button(wrapper, '盆栽').trigger('click')
-    await wrapper.get('[aria-label="第3排第4格 空位"]').trigger('click')
-    const lamp = { item: 'lamp', x: 0, y: 2 } as const
+    const lamp = { item: 'lamp', x: 830, y: 820 } as const
     vi.mocked(getSharedRoom).mockResolvedValue({
-      ...empty, version: 2, layout: [{ item: 'table', x: 2, y: 0 }, lamp],
+      ...empty, version: 2, layout: [{ item: 'table', x: 720, y: 260 }, lamp],
     })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
     expect(button(wrapper, '应用到草稿').element.disabled).toBe(true)
-    await button(wrapper, '我的布置 · 第1排第2格').trigger('click')
+    await button(wrapper, '我的布置 · 后排居中').trigger('click')
     await button(wrapper, '应用到草稿').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第1格 落地灯"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第4格 盆栽"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-lamp"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(true)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     await button(wrapper, '撤销').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第3格 小桌"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 72%')
     await button(wrapper, '重做').trigger('click')
     vi.mocked(saveSharedRoom).mockResolvedValueOnce(3)
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
     expect(saveSharedRoom).toHaveBeenCalledExactlyOnceWith(2, [
-      { item: 'table', x: 1, y: 0 }, lamp, { item: 'plant', x: 3, y: 2 },
+      { item: 'table', x: 400, y: 320 }, lamp, { item: 'plant', ...DEFAULT_ITEM_SPOTS.plant },
     ])
     wrapper.unmount()
   })
 
-  it('keeps apply disabled while the selected pair still occupies one cell', async () => {
+  it('keeps apply disabled while two non-rug items overlap until one moves or hides', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     vi.mocked(getSharedRoom).mockResolvedValue({
-      ...empty, version: 1, layout: [{ item: 'rug', x: 1, y: 0 }],
+      ...empty, version: 1, layout: [{ item: 'plant', x: 520, y: 605 }],
     })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
-    await button(wrapper, '我的布置 · 第1排第2格').trigger('click')
-    await button(wrapper, '共享布局 · 第1排第2格').trigger('click')
+    const plantFieldset = wrapper.findAll('.room-resolution fieldset').find(el => el.text().includes('盆栽'))!
+    const tableFieldset = wrapper.findAll('.room-resolution fieldset').find(el => el.text().includes('小桌'))!
+    await tableFieldset.findAll('button').find(btn => btn.text() === '我的布置 · 中景居中')!.trigger('click')
+    await plantFieldset.findAll('button').find(btn => btn.text() === '共享布局 · 中景居中')!.trigger('click')
     expect(button(wrapper, '应用到草稿').element.disabled).toBe(true)
-    expect(wrapper.get('.room-resolution [role="status"]').text()).toContain('同时放了小桌和地毯')
-    await button(wrapper, '共享布局 · 不摆放').trigger('click')
+    expect(wrapper.get('.room-resolution [role="status"]').text()).toContain('小桌和盆栽位置重叠了')
+    await tableFieldset.findAll('button').find(btn => btn.text() === '共享布局 · 不摆放')!.trigger('click')
     await button(wrapper, '应用到草稿').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(true)
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -340,17 +361,16 @@ describe('shared room', () => {
   it('applies a template as one draft step and only sends it on explicit save', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '盆栽').trigger('click')
-    await wrapper.get('[aria-label="第3排第4格 空位"]').trigger('click')
     await button(wrapper, '套用茶角').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第2格 小桌"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第4格 盆栽"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(false)
     expect(button(wrapper, '套用茶角').element.disabled).toBe(true)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     await button(wrapper, '撤销').trigger('click')
-    expect(wrapper.find('[aria-label="第3排第4格 盆栽"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第2排第2格 小桌"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(false)
     await button(wrapper, '重做').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
     expect(saveSharedRoom).toHaveBeenCalledExactlyOnceWith(0, ROOM_LAYOUT_PRESETS[0]!.layout)
@@ -360,36 +380,34 @@ describe('shared room', () => {
   it('recovers a draft and its undo and redo history after leaving the room', async () => {
     const { wrapper, pinia } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
-    await wrapper.get('[aria-label="第2排第3格 空位"]').trigger('click')
+    await wrapper.get('[data-test="room-floor"]').trigger('click', { clientX: 640, clientY: 500 })
     await button(wrapper, '撤销').trigger('click')
     wrapper.unmount()
 
     const returned = mountRoom(pinia)
     expect(returned.find('[aria-label="共享房间"]').exists()).toBe(false)
     await flushPromises()
-    expect(returned.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(returned.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 50%')
     expect(button(returned, '撤销').element.disabled).toBe(false)
     await button(returned, '重做').trigger('click')
-    expect(returned.find('[aria-label="第2排第3格 小桌"]').exists()).toBe(true)
+    expect(returned.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 64%')
     expect(saveSharedRoom).not.toHaveBeenCalled()
     returned.unmount()
   })
 
-  it('keeps a restored draft against its original version when a partner placement conflicts', async () => {
+  it('keeps a restored draft against its original version when a partner placement overlaps', async () => {
     const { wrapper, pinia } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     wrapper.unmount()
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'rug', x: 1, y: 0 }] })
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'plant', x: 510, y: 610 }] })
     const returned = mountRoom(pinia)
     await flushPromises()
-    expect(returned.get('[role="alert"]').text()).toContain('第1排第2格同时放了小桌和地毯')
-    expect(returned.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(returned.get('[role="alert"]').text()).toContain('小桌和盆栽位置重叠了')
+    expect(returned.find('[data-test="room-item-table"]').exists()).toBe(true)
     expect(button(returned, '保存布局').element.disabled).toBe(true)
     await button(returned, '放弃草稿并采用最新布局').trigger('click')
     await flushPromises()
-    expect(returned.find('[aria-label="第1排第2格 地毯"]').exists()).toBe(true)
+    expect(returned.find('[data-test="room-item-plant"]').exists()).toBe(true)
     expect(button(returned, '撤销').element.disabled).toBe(true)
     returned.unmount()
   })
@@ -398,14 +416,13 @@ describe('shared room', () => {
     const { wrapper, session, pinia } = await setup()
     const oldSpace = session.space
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     wrapper.unmount()
     session.resetBusinessState()
     session.user = user
     session.space = oldSpace
     const returned = mountRoom(pinia)
     await flushPromises()
-    expect(returned.find('[aria-label="第1排第2格 空位"]').exists()).toBe(true)
+    expect(returned.find('[data-test="room-item-table"]').exists()).toBe(false)
     expect(button(returned, '撤销').element.disabled).toBe(true)
     returned.unmount()
   })
@@ -414,22 +431,21 @@ describe('shared room', () => {
     const { wrapper } = await setup()
     expect(button(wrapper, '撤销').element.disabled).toBe(true)
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
-    await wrapper.get('[aria-label="第2排第3格 空位"]').trigger('click')
-    await button(wrapper, '移除选中家具').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第3格 小桌"]').exists()).toBe(false)
+    await wrapper.get('[data-test="room-floor"]').trigger('click', { clientX: 660, clientY: 520 })
+    await wrapper.get('[data-test="room-item-remove"]').trigger('click')
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(false)
     await button(wrapper, '撤销').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第3格 小桌"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 66%')
     await button(wrapper, '撤销').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 50%')
     await button(wrapper, '撤销').trigger('click')
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     await button(wrapper, '重做').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
     await button(wrapper, '重做').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第3格 小桌"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 66%')
     await button(wrapper, '重做').trigger('click')
-    expect(wrapper.find('[aria-label="第2排第3格 小桌"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(false)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -437,14 +453,12 @@ describe('shared room', () => {
   it('drops redo after a new edit and clears undo after a successful save', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     await button(wrapper, '撤销').trigger('click')
     await button(wrapper, '盆栽').trigger('click')
-    await wrapper.get('[aria-label="第3排第1格 空位"]').trigger('click')
     expect(button(wrapper, '重做').element.disabled).toBe(true)
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
-    expect(saveSharedRoom).toHaveBeenCalledExactlyOnceWith(0, [{ item: 'plant', x: 0, y: 2 }])
+    expect(saveSharedRoom).toHaveBeenCalledExactlyOnceWith(0, [{ item: 'plant', ...DEFAULT_ITEM_SPOTS.plant }])
     expect(button(wrapper, '撤销').element.disabled).toBe(true)
     wrapper.unmount()
   })
@@ -452,35 +466,33 @@ describe('shared room', () => {
   it('undoes a reconciled draft to the latest shared base without removing the partner edit', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     vi.mocked(getSharedRoom).mockResolvedValue({
-      ...empty, version: 1, layout: [{ item: 'rug', x: 0, y: 2 }],
+      ...empty, version: 1, layout: [{ item: 'rug', x: 500, y: 650 }],
     })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
     await button(wrapper, '撤销').trigger('click')
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(false)
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     await button(wrapper, '重做').trigger('click')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
-  it('sets furniture in an empty cell, saves its version and reads a later layout', async () => {
+  it('places furniture freely, saves its version and reads a later layout', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
-    expect(saveSharedRoom).toHaveBeenCalledWith(0, [{ item: 'table', x: 1, y: 0 }])
+    expect(saveSharedRoom).toHaveBeenCalledWith(0, [{ item: 'table', ...DEFAULT_ITEM_SPOTS.table }])
     expect(wrapper.text()).toContain('已保存布局')
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 2, layout: [{ item: 'rug', x: 0, y: 2 }] })
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 2, layout: [{ item: 'rug', x: 500, y: 650 }] })
     await button(wrapper, '读取最新布局').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -488,11 +500,10 @@ describe('shared room', () => {
     vi.mocked(saveSharedRoom).mockRejectedValue(new ApiError('SHARED_ROOM_VERSION_CONFLICT', 'changed', 409))
     const { wrapper } = await setup()
     await button(wrapper, '盆栽').trigger('click')
-    await wrapper.get('[aria-label="第2排第1格 空位"]').trigger('click')
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('草稿仍在这里')
-    expect(wrapper.find('[aria-label="第2排第1格 盆栽"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(true)
     expect((button(wrapper, '保存布局').element as HTMLButtonElement).disabled).toBe(true)
     expect(saveSharedRoom).toHaveBeenCalledTimes(1)
     wrapper.unmount()
@@ -501,37 +512,35 @@ describe('shared room', () => {
   it('merges nonoverlapping placements and requires explicit save with the latest version', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     vi.mocked(saveSharedRoom).mockRejectedValueOnce(new ApiError('SHARED_ROOM_VERSION_CONFLICT', 'changed', 409))
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
-    const rug = { item: 'rug', x: 0, y: 2 } as const
+    const rug = { item: 'rug', x: 500, y: 650 } as const
     vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 3, layout: [rug] })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="第3排第1格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-rug"]').exists()).toBe(true)
     expect(saveSharedRoom).toHaveBeenCalledTimes(1)
     vi.mocked(saveSharedRoom).mockResolvedValueOnce(4)
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
-    expect(saveSharedRoom).toHaveBeenLastCalledWith(3, [{ item: 'table', x: 1, y: 0 }, rug])
+    expect(saveSharedRoom).toHaveBeenLastCalledWith(3, [{ item: 'table', ...DEFAULT_ITEM_SPOTS.table }, rug])
     wrapper.unmount()
   })
 
-  it('keeps the original draft on a cell collision until choosing the latest layout', async () => {
+  it('keeps the original draft on an overlap conflict until choosing the latest layout', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'rug', x: 1, y: 0 }] })
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'plant', x: 510, y: 610 }] })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[role="alert"]').text()).toContain('第1排第2格同时放了小桌和地毯')
-    expect(wrapper.find('[aria-label="第1排第2格 小桌"]').exists()).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).toContain('小桌和盆栽位置重叠了')
+    expect(wrapper.find('[data-test="room-item-table"]').exists()).toBe(true)
     expect(button(wrapper, '保存布局').element.disabled).toBe(true)
     await button(wrapper, '放弃草稿并采用最新布局').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[aria-label="第1排第2格 地毯"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-item-plant"]').exists()).toBe(true)
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(saveSharedRoom).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -540,11 +549,10 @@ describe('shared room', () => {
   it('recognizes a save that succeeded despite a lost response', async () => {
     const { wrapper } = await setup()
     await button(wrapper, '小桌').trigger('click')
-    await wrapper.get('[aria-label="第1排第2格 空位"]').trigger('click')
     vi.mocked(saveSharedRoom).mockRejectedValueOnce(new Error('network interruption'))
     await button(wrapper, '保存布局').trigger('click')
     await flushPromises()
-    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'table', x: 1, y: 0 }] })
+    vi.mocked(getSharedRoom).mockResolvedValue({ ...empty, version: 1, layout: [{ item: 'table', ...DEFAULT_ITEM_SPOTS.table }] })
     await button(wrapper, '读取最新布局，保留草稿').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toBe('最新布局已包含你的摆放。')
@@ -554,8 +562,8 @@ describe('shared room', () => {
   })
 
   it('requires a decision for moving versus removing the same furniture', () => {
-    const table = { item: 'table', x: 1, y: 0 } as const
-    expect(mergeRoomLayout([table], [], [{ ...table, x: 2 }])).toEqual({
+    const table = { item: 'table', x: 240, y: 300 } as const
+    expect(mergeRoomLayout([table], [], [{ ...table, x: 480 }])).toEqual({
       conflicts: [{ kind: 'item', item: 'table' }],
     })
     expect(mergeRoomLayout([table], [], [table])).toEqual({ layout: [] })
@@ -572,6 +580,184 @@ describe('shared room', () => {
     session.user = null
     await flushPromises()
     expect(wrapper.find('[aria-label="共享房间"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('shared room free arrangement and night lighting', () => {
+  it('removes grid cells, supports smooth pointer dragging and flipping, and saves continuous coordinates', async () => {
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      version: 1,
+      layout: [{ item: 'table', x: 300, y: 400 }, { item: 'plant', x: 170, y: 290 }],
+    })
+    const { wrapper } = await setup()
+    await button(wrapper, '布置').trigger('click')
+    expect(wrapper.find('.room-cell').exists()).toBe(false)
+    expect(wrapper.get('[data-test="room-capacity-badge"]').text()).toContain('2 / 4')
+
+    const tableBtn = wrapper.get('[data-test="room-item-table"]')
+    await tableBtn.trigger('pointerdown', { clientX: 100, clientY: 100, button: 0 })
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 180, clientY: 140 }))
+    window.dispatchEvent(new MouseEvent('pointerup', { clientX: 180, clientY: 140 }))
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('left: 50%')
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('style')).toContain('top: 60%')
+    expect(wrapper.find('[data-test="room-item-toolbar"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="room-item-flip"]').trigger('click')
+    expect(wrapper.get('[data-test="room-item-table"]').attributes('data-flipped')).toBe('true')
+
+    vi.mocked(saveSharedRoom).mockResolvedValueOnce(2)
+    await button(wrapper, '保存布局').trigger('click')
+    await flushPromises()
+    expect(saveSharedRoom).toHaveBeenCalledExactlyOnceWith(1, [
+      { item: 'plant', x: 170, y: 290 },
+      { item: 'table', x: 500, y: 600, flip: true },
+    ])
+    wrapper.unmount()
+  })
+
+  it('places more than 4 furniture items and layers items directly on top of the rug', async () => {
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      version: 1,
+      furniture: [
+        { item: 'bookshelf', price: 20, owned: true },
+        { item: 'armchair', price: 30, owned: true },
+      ],
+      layout: [
+        { item: 'rug', x: 500, y: 600 },
+        { item: 'plant', x: 170, y: 300 },
+        { item: 'lamp', x: 830, y: 300 },
+        { item: 'bookshelf', x: 500, y: 235 },
+        { item: 'armchair', x: 700, y: 560 },
+      ],
+    })
+    const { wrapper } = await setup()
+    await button(wrapper, '布置').trigger('click')
+    await button(wrapper, '小桌').trigger('click')
+    expect(wrapper.get('[data-test="room-capacity-badge"]').text()).toContain('6 / 6')
+
+    vi.mocked(saveSharedRoom).mockResolvedValueOnce(2)
+    await button(wrapper, '保存布局').trigger('click')
+    await flushPromises()
+    expect(saveSharedRoom).toHaveBeenCalledWith(1, expect.arrayContaining([
+      { item: 'rug', x: 500, y: 600 },
+      { item: 'table', x: 500, y: 600 },
+      { item: 'bookshelf', x: 500, y: 235 },
+      { item: 'armchair', x: 700, y: 560 },
+    ]))
+    wrapper.unmount()
+  })
+
+  it('normalizes legacy 4x3 grid coordinates seamlessly on render', async () => {
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      version: 1,
+      layout: [{ item: 'table', x: 1, y: 1 }],
+    })
+    const { wrapper } = await setup()
+    const style = wrapper.get('[data-test="room-item-table"]').attributes('style')
+    expect(style).toContain('left: 37.5%')
+    expect(style).toContain('top: 54%')
+    wrapper.unmount()
+  })
+
+  it('switches to dedicated night scenery, auto-lights the placed floor lamp, and lets user toggle lamp on/off', async () => {
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      version: 1,
+      layout: [{ item: 'lamp', x: 820, y: 290 }],
+    })
+    const { wrapper } = await setup()
+    expect(wrapper.find('.room-scene--night').exists()).toBe(false)
+    expect(wrapper.get('[data-test="room-light-toggle"]').text()).toContain('晴昼')
+
+    await wrapper.get('[data-test="room-light-toggle"]').trigger('click')
+    expect(wrapper.find('.room-scene--night').exists()).toBe(true)
+    expect(wrapper.find('.room-scene--lamp-lit').exists()).toBe(true)
+    expect(wrapper.find('.room-item--lamp-lit').exists()).toBe(true)
+    expect(wrapper.find('.room-lamp-bulb').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-light-toggle"]').text()).toContain('暖夜')
+
+    // Clicking the floor lamp in night mode toggles it off into calm moonlit night
+    await wrapper.get('[data-test="room-item-lamp"]').trigger('click')
+    expect(wrapper.find('.room-scene--night').exists()).toBe(true)
+    expect(wrapper.find('.room-scene--moonlit').exists()).toBe(true)
+    expect(wrapper.find('.room-item--lamp-lit').exists()).toBe(false)
+    expect(wrapper.get('[data-test="room-light-toggle"]').text()).toContain('月夜')
+
+    // Clicking the floor lamp again relights it
+    await wrapper.get('[data-test="room-item-lamp"]').trigger('click')
+    expect(wrapper.find('.room-scene--lamp-lit').exists()).toBe(true)
+    expect(wrapper.get('[data-test="room-light-toggle"]').text()).toContain('暖夜')
+
+    // HUD toggle turns night back to sunlit day
+    await wrapper.get('[data-test="room-light-toggle"]').trigger('click')
+    expect(wrapper.find('.room-scene--night').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('lazily loads partner latest note on partner tap and lets self request a room swap inline', async () => {
+    vi.mocked(listMessages).mockResolvedValue({
+      messages: [{
+        id: 'm-partner-1', author_id: 'member-b', recipient_id: 'member-a',
+        body: '晚上买个草莓蛋糕好不好', created_at: stamp, reply: null,
+      }],
+      next_cursor: null,
+    })
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      positions: { side: 'left', paired: true, pending: null },
+      partner_appearance: {
+        source: 'starter_defaults', complete: true, starter_version: 1, loadout_version: 0,
+        slots: { hair: null, clothes: null, expression: null, hat: null, handheld: null, accessory: null },
+      },
+    })
+    const { wrapper } = await setup()
+    expect(listMessages).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="interact-partner"]').trigger('click')
+    await flushPromises()
+    expect(listMessages).toHaveBeenCalledWith(null, 1, 'partner')
+    expect(wrapper.get('[data-test="partner-bubble"]').text()).toContain('晚上买个草莓蛋糕好不好')
+    expect(wrapper.find('[data-test="room-partner-read-note"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="interact-self"]').trigger('click')
+    expect(wrapper.find('[data-test="self-bubble"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="room-self-wardrobe"]').exists()).toBe(true)
+
+    vi.mocked(getRoomPositions).mockResolvedValueOnce({
+      side: 'left', paired: true, pending: { id: 'f0000000-0000-4000-8000-000000000099', incoming: false },
+    })
+    await wrapper.get('[data-test="room-swap-request"]').trigger('click')
+    await flushPromises()
+    expect(changeRoomPosition).toHaveBeenCalledWith(expect.any(String), 'request')
+    expect(wrapper.get('[data-test="self-bubble"]').text()).toContain('换位申请已发出')
+    expect(wrapper.find('[data-test="room-swap-cancel"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('displays the 4-button action dock for layout, shop, wardrobe and garden', async () => {
+    vi.mocked(getSharedRoom).mockResolvedValue({
+      ...empty,
+      furniture: [{ item: 'armchair', price: 30, owned: false }],
+    })
+    const pinia = createPinia()
+    const session = useSessionStore(pinia)
+    session.user = user
+    session.space = { id: 'space', name: '我们', timezone: 'Asia/Shanghai', member_count: 2, created_at: stamp }
+    const wrapper = mount(SharedRoomView, {
+      global: { plugins: [pinia], stubs: { RouterLink: RouterLinkStub, AvatarFigure: true } },
+    })
+    await flushPromises()
+    const dock = wrapper.get('.room-dock')
+    expect(dock.text()).toContain('布置')
+    expect(dock.text()).toContain('商店')
+    expect(dock.find('[data-test="room-dock-wardrobe"]').text()).toContain('衣柜')
+    expect(dock.find('[data-test="room-dock-garden"]').text()).toContain('花园')
     wrapper.unmount()
   })
 })

@@ -4,6 +4,8 @@ import { achievementRules } from '@/api/achievements'
 import { messageTime } from '@/api/message-rules'
 import { useAchievementsStore } from '@/stores/achievements'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
+const back = useSmartBack('achievements', 'us')
 const store = useAchievementsStore(), session = useSessionStore()
 watch(() => [session.user?.id, session.space?.id, session.isAuthenticated], () => { if (session.isAuthenticated) void store.load() }, { immediate: true })
 onBeforeUnmount(() => store.reset())
@@ -11,7 +13,10 @@ const badges = computed(() => store.data?.badges.map((b, n) => ({ ...b, ...achie
 </script>
 <template>
   <section class="page">
-    <header class="row"><h1 class="page__title spacer">我的成就</h1><RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink></header>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="achievements-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">我的成就</h1>
+    </header>
     <p class="hint">记录每一次小进步。成就仅授予徽章，不发放阳光或小红花。</p>
     <button class="btn btn--small" :disabled="store.status === 'loading'" @click="store.load()">{{ store.status === 'loading' ? '正在读取' : '刷新成就' }}</button>
     <p v-if="store.status === 'error'" class="hint hint--error" role="alert">{{ store.error }}</p>

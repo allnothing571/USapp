@@ -6,7 +6,9 @@ import PartnerNoticeToggle from '@/components/PartnerNoticeToggle.vue'
 import SharedPlanForm from '@/components/SharedPlanForm.vue'
 import { useSessionStore } from '@/stores/session'
 import { useSharedPlansStore } from '@/stores/shared-plans'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('shared-plans', 'us')
 const router = useRouter()
 const session = useSessionStore()
 const store = useSharedPlansStore()
@@ -41,12 +43,10 @@ async function submit(body?: PlanBody): Promise<void> {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">共享计划</h1>
-        <p class="page__subtitle">把想一起做的事，从想法变成回忆。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="shared-plans-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">共享计划</h1>
+      <p class="subpage-header__subtitle">把想一起做的事，从想法变成回忆。</p>
     </header>
 
     <div class="card stack">

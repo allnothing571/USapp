@@ -1,0 +1,33 @@
+# =====================================================================
+# USapp Edge Image (Caddy 2 + prebuilt web PWA & admin SPA)
+# Build context: repository root (.)
+# =====================================================================
+
+FROM node:24-alpine AS web-builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /build/web
+COPY apps/web/package.json apps/web/pnpm-lock.yaml apps/web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY apps/web/ ./
+RUN pnpm run build
+
+FROM node:24-alpine AS admin-builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /build/admin
+COPY apps/admin/package.json apps/admin/pnpm-lock.yaml apps/admin/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY apps/admin/ ./
+RUN pnpm run build
+
+FROM caddy:2-alpine AS runtime
+COPY --from=web-builder /build/web/dist /srv/web
+COPY --from=admin-builder /build/admin/dist /srv/admin
+COPY deploy/Caddyfile.prod /etc/caddy/Caddyfile
+
+EXPOSE 80 443 8444

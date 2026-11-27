@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useSessionStore } from '@/stores/session'
 import { notificationLabel, notificationTarget, type Notification } from '@/api/notifications'
+import { useSmartBack } from '@/router/back-navigation'
+const back = useSmartBack('notifications', 'home')
 const store = useNotificationsStore(), session = useSessionStore(), router = useRouter()
 let epoch = 0
 let refreshing: Promise<void> | null = null
@@ -32,7 +34,11 @@ async function open(item: Notification): Promise<void> {
 </script>
 <template>
   <section class="page stack">
-    <header><h1 class="page__title">通知</h1><p class="page__subtitle">通知记录当时的事件，当前处理状态请在对应页面查看。</p><RouterLink to="/home">返回首页</RouterLink></header>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="notifications-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">通知</h1>
+      <p class="subpage-header__subtitle">通知记录当时的事件，当前处理状态请在对应页面查看。</p>
+    </header>
     <div class="card stack">
       <label><input type="checkbox" :checked="store.unreadOnly" @change="store.load(!store.unreadOnly)">只看未读</label>
       <button class="btn btn--small" type="button" @click="refresh">刷新</button>

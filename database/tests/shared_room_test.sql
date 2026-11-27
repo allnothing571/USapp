@@ -54,7 +54,9 @@ BEGIN
      usapp_shared_room_read(a)->'layout' IS DISTINCT FROM layout_b THEN RAISE EXCEPTION 'version conflict'; END IF;
   FOREACH invalid IN ARRAY ARRAY[
      '[0]'::jsonb,'[{"item":"lamp","x":"1","y":0}]','[{"item":"lamp","x":1}]',
-     '[{"item":"lamp","x":10,"y":0}]','[{"item":"hat","x":1,"y":0}]',
+     '[{"item":"lamp","x":1001,"y":0}]','[{"item":"lamp","x":-1,"y":0}]',
+     '[{"item":"lamp","x":120.5,"y":200}]','[{"item":"lamp","x":120,"y":200,"flip":"yes"}]',
+     '[{"item":"hat","x":1,"y":0}]',
      '[{"item":"lamp","x":1,"y":0},{"item":"lamp","x":2,"y":0}]',
      '[{"item":"lamp","x":1,"y":0},{"item":"plant","x":1,"y":0}]'
   ] LOOP
@@ -80,6 +82,8 @@ BEGIN
     NOT (usapp_room_furniture_read(c) @> '[{"item":"bookshelf","owned":false}]') THEN RAISE EXCEPTION 'shared ownership scope'; END IF;
   IF usapp_shared_room_save(b,2,paid) <> 'saved' OR usapp_shared_room_save(c,0,paid) <> 'invalid'
     THEN RAISE EXCEPTION 'paid placement entitlement'; END IF;
+  IF usapp_shared_room_save(a,3,'[{"item":"rug","x":500,"y":600},{"item":"table","x":500,"y":600,"flip":true},{"item":"lamp","x":835,"y":290},{"item":"plant","x":165,"y":290},{"item":"bookshelf","x":240,"y":230}]'::jsonb) <> 'saved'
+    THEN RAISE EXCEPTION 'free layout rug layering and 5 items'; END IF;
   IF (SELECT count(*) FROM wallet_ledger_entries WHERE user_id=a AND asset_type='sunshine' AND amount=-20 AND balance_after=5) <> 1
     THEN RAISE EXCEPTION 'sunshine debit'; END IF;
 END

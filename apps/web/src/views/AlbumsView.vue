@@ -10,7 +10,9 @@ import { ALBUM_NAME_MAX, checkAlbumName } from '@/api/album-rules'
 import MemoryPhotoView from '@/components/MemoryPhotoView.vue'
 import { useAlbumsStore, type AlbumResult } from '@/stores/albums'
 import { useSessionStore } from '@/stores/session'
+import { useSmartBack } from '@/router/back-navigation'
 
+const back = useSmartBack('albums', 'us')
 const session = useSessionStore()
 const store = useAlbumsStore()
 const router = useRouter()
@@ -59,12 +61,10 @@ async function retryCreate(): Promise<void> {
 
 <template>
   <section class="page">
-    <header class="row">
-      <div class="spacer">
-        <h1 class="page__title">共享相册</h1>
-        <p class="page__subtitle">新建的排在前面，只有你们两个人能看到。</p>
-      </div>
-      <RouterLink class="btn btn--small btn--soft" :to="{ name: 'us' }">返回</RouterLink>
+    <header class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="albums-back">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">共享相册</h1>
+      <p class="subpage-header__subtitle">新建的排在前面，只有你们两个人能看到。</p>
     </header>
 
     <div v-if="store.status === 'ready' && store.uploadsEnabled === false" class="card card__hint" data-test="albums-uploads-off">

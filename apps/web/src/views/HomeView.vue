@@ -31,11 +31,24 @@ import { useWalletStore } from '@/stores/wallet'
 import AvatarHome from '@/components/AvatarHome.vue'
 import GardenHome from '@/components/GardenHome.vue'
 import { useAvatarStore } from '@/stores/avatar'
+import { useSmartBack } from '@/router/back-navigation'
+
+const props = defineProps<{ section?: 'hub' | 'today' | 'pending' }>()
+const back = useSmartBack(() => (props.section === 'pending' ? 'home-pending' : 'home-today'), 'home')
 
 const session = useSessionStore()
 const walletStore = useWalletStore()
 const home = useHomeStore()
 const gardenRefresh = ref(0)
+
+const isHub = computed(() => props.section === 'hub')
+const isTodayPage = computed(() => props.section === 'today')
+const isPendingPage = computed(() => props.section === 'pending')
+const SUBPAGE_TITLE: Record<'today' | 'pending', string> = {
+  today: '今日待做',
+  pending: '待处理事项',
+}
+const subpageTitle = computed(() => (props.section === 'today' || props.section === 'pending' ? SUBPAGE_TITLE[props.section] : ''))
 
 const me = computed(() => session.user?.id ?? '')
 const nickname = computed(() => session.user?.display_name?.trim() || '未设置昵称')
@@ -173,24 +186,181 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
 
 <template>
   <section class="page home-page">
-    <header class="page-heading">
+    <header v-if="!props.section || isHub" class="page-heading">
       <h1 class="page__title">小空间</h1>
       <button class="btn btn--small btn--ghost" type="button" data-test="home-refresh" @click="refreshAll()">刷新</button>
     </header>
+    <header v-else class="subpage-header">
+      <RouterLink class="back-pill" :to="back.to" data-test="back-to-home">‹ 返回{{ back.label }}</RouterLink>
+      <h1 class="subpage-header__title">{{ subpageTitle }}</h1>
+      <button class="btn btn--small btn--ghost" type="button" data-test="home-refresh" @click="refreshAll()">刷新</button>
+    </header>
 
-    <section class="home-welcome" aria-label="共享空间入口">
-      <img src="/ui-art/home.jpg" alt="" class="page-illustration">
-      <div class="home-destinations">
-        <RouterLink class="home-destination" :to="{ name: 'shared-room' }">
-          <span class="room-art" data-item="armchair" aria-hidden="true"></span><span>去小房间</span>
-        </RouterLink>
-        <RouterLink class="home-destination" :to="{ name: 'shared-garden' }">
-          <span class="room-art" data-item="garden" aria-hidden="true"></span><span>去共享花园</span>
-        </RouterLink>
+    <!-- 一级极简门户 -->
+    <template v-if="isHub">
+      <section class="home-welcome" aria-label="共享空间入口">
+        <img src="/ui-art/home.jpg" alt="" class="page-illustration">
+        <div class="home-destinations">
+          <RouterLink class="home-destination" :to="{ name: 'shared-room' }">
+            <span class="room-art" data-item="armchair" aria-hidden="true"></span><span>去小房间</span>
+          </RouterLink>
+          <RouterLink class="home-destination" :to="{ name: 'shared-garden' }">
+            <span class="room-art" data-item="garden" aria-hidden="true"></span><span>去共享花园</span>
+          </RouterLink>
+        </div>
+      </section>
+
+      <RouterLink
+        v-if="needsMeRows.length > 0 || [home.tasks, home.history, home.redemptions].some((scan) => scan.status === 'error')"
+        class="hub-card hub-card--urgent"
+        :to="{ name: 'home-pending' }"
+        data-test="home-urgent"
+      >
+        <span class="hub-card__icon hub-card__icon--warm" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v5" />
+            <path d="M12 16.5h.01" />
+          </svg>
+        </span>
+        <span class="hub-card__body">
+          <span class="hub-card__title">
+            {{ needsMeRows.length ? `有 ${needsMeRows.length} 类事项需要你处理` : '待处理事项读取失败' }}
+          </span>
+          <span class="hub-card__sub">
+            {{ needsMeRows.length ? needsMeRows.map((r) => `${r.label} ${r.count}`).join(' · ') : '点此进入查看并重试' }}
+          </span>
+        </span>
+        <span class="hub-card__meta">
+          <span v-if="needsMeRows.length" class="hub-badge hub-badge--alert">去处理</span>
+          <span class="hub-arrow" aria-hidden="true">›</span>
+        </span>
+      </RouterLink>
+
+      <div class="card home-profile" data-test="home-brief">
+        <div class="home-profile__row">
+          <AvatarHome />
+          <div class="home-profile__info">
+            <h2 class="card__title" style="margin-bottom: 0;">{{ nickname }}</h2>
+            <div aria-live="polite" :aria-busy="walletStore.status === 'loading'" data-test="home-wallet">
+              <div v-if="walletStore.status === 'ready' && walletStore.balances" class="wallet-pill-group">
+                <span class="wallet-pill">小红花 {{ walletStore.balances.flower }}</span>
+                <span class="wallet-pill wallet-pill--green">阳光值 {{ walletStore.balances.sunshine }}</span>
+              </div>
+              <button v-else-if="walletStore.status === 'error'" class="btn btn--small btn--soft" type="button" @click="walletStore.load()">
+                余额重试
+              </button>
+              <span v-else class="card__hint">余额加载中…</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </section>
 
-    <div class="card home-today" data-test="home-today" aria-live="polite" :aria-busy="home.tasks.status === 'loading'">
+      <div class="hub-grid" data-test="home-hub-actions">
+        <RouterLink class="hub-card" :to="{ name: 'home-today' }" data-test="brief-today">
+          <span class="hub-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="3" />
+              <path d="m8.5 12 2.5 2.5L15.5 9.5" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">今日待做</span>
+            <span class="hub-card__sub">
+              <template v-if="home.tasks.status === 'error'">读取失败，点此重试</template>
+              <template v-else-if="home.tasks.status !== 'ready'">加载中…</template>
+              <template v-else-if="todayTasks.length">今天有 {{ todayTasks.length }} 项待做</template>
+              <template v-else>今天没有要做的任务</template>
+            </span>
+          </span>
+          <span class="hub-card__meta">
+            <span v-if="home.tasks.status === 'ready' && todayTasks.length > 0" class="hub-badge hub-badge--alert">
+              待做 {{ todayTasks.length }}
+            </span>
+            <span class="hub-arrow" aria-hidden="true">›</span>
+          </span>
+        </RouterLink>
+
+        <RouterLink
+          class="hub-card"
+          :to="home.anniversary.anniversary ? { name: 'anniversary-detail', params: { id: home.anniversary.anniversary.id } } : { name: 'anniversaries' }"
+          data-test="brief-anniversary"
+        >
+          <span class="hub-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="5" width="16" height="15" rx="2.5" />
+              <path d="M8 3v4" />
+              <path d="M16 3v4" />
+              <path d="M4 10h16" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">纪念日</span>
+            <span class="hub-card__sub">
+              <template v-if="home.anniversary.status === 'error'">读取失败，点此查看</template>
+              <template v-else-if="home.anniversary.status !== 'ready'">加载中…</template>
+              <template v-else-if="home.anniversary.anniversary">
+                {{ home.anniversary.anniversary.title }} · {{ anniversaryHeadline(home.anniversary.anniversary) }}
+              </template>
+              <template v-else>还没有纪念日，去添加</template>
+            </span>
+          </span>
+          <span class="hub-card__meta">
+            <span v-if="home.anniversary.source === 'pinned'" class="hub-badge">置顶</span>
+            <span class="hub-arrow" aria-hidden="true">›</span>
+          </span>
+        </RouterLink>
+
+        <RouterLink
+          class="hub-card"
+          :to="home.latestMessage.message ? { name: 'message-detail', params: { id: home.latestMessage.message.id } } : { name: 'messages' }"
+          data-test="brief-message"
+        >
+          <span class="hub-card__icon hub-card__icon--warm" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6h16v11H7l-3 3V6Z" />
+              <path d="M8 10h8" />
+              <path d="M8 13.5h5" />
+            </svg>
+          </span>
+          <span class="hub-card__body">
+            <span class="hub-card__title">伴侣留言</span>
+            <span class="hub-card__sub">
+              <template v-if="home.latestMessage.status === 'error'">读取失败，点此查看</template>
+              <template v-else-if="home.latestMessage.status !== 'ready'">加载中…</template>
+              <template v-else-if="home.latestMessage.message">
+                {{ messagePreview(home.latestMessage.message.body) }}
+              </template>
+              <template v-else>对方还没有留言，去写小纸条</template>
+            </span>
+          </span>
+          <span class="hub-card__meta">
+            <span v-if="home.latestMessage.message && !home.latestMessage.message.reply" class="hub-badge hub-badge--alert">
+              待我回复
+            </span>
+            <span class="hub-arrow" aria-hidden="true">›</span>
+          </span>
+        </RouterLink>
+
+        <GardenHome :refresh-key="gardenRefresh" as-link />
+      </div>
+    </template>
+
+    <!-- 兼容全量与独立二级专页 -->
+    <template v-else>
+      <section v-if="!props.section" class="home-welcome" aria-label="共享空间入口">
+        <img src="/ui-art/home.jpg" alt="" class="page-illustration">
+        <div class="home-destinations">
+          <RouterLink class="home-destination" :to="{ name: 'shared-room' }">
+            <span class="room-art" data-item="armchair" aria-hidden="true"></span><span>去小房间</span>
+          </RouterLink>
+          <RouterLink class="home-destination" :to="{ name: 'shared-garden' }">
+            <span class="room-art" data-item="garden" aria-hidden="true"></span><span>去共享花园</span>
+          </RouterLink>
+        </div>
+      </section>
+
+      <div v-if="!props.section || isTodayPage" class="card home-today" data-test="home-today" aria-live="polite" :aria-busy="home.tasks.status === 'loading'">
       <h2 class="card__title">今天的任务</h2>
       <template v-if="home.tasks.status === 'error'">
         <p class="hint hint--error" role="alert">{{ home.tasks.errorText }}</p>
@@ -215,7 +385,7 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
       <RouterLink class="btn btn--small btn--soft" :to="{ name: 'tasks' }" data-test="home-tasks-link">全部任务</RouterLink>
     </div>
 
-    <div class="card" data-test="home-pending" aria-live="polite">
+    <div v-if="!props.section || isPendingPage" class="card" data-test="home-pending" aria-live="polite">
       <h2 class="card__title">待处理</h2>
       <p v-if="home.tasks.status === 'error'" class="hint hint--error" role="alert" data-test="pending-tasks-error">
         任务读取失败：{{ home.tasks.errorText }}
@@ -264,7 +434,7 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
       </p>
     </div>
 
-    <div class="home-grid">
+    <div v-if="!props.section" class="home-grid">
       <div class="card home-grid__cell" data-test="home-anniversary" aria-live="polite"
         :aria-busy="home.anniversary.status === 'loading'">
         <h2 class="card__title">纪念日</h2>
@@ -283,7 +453,7 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
           <div v-if="anniversaryNextLine(home.anniversary.anniversary)" class="list__meta">
             {{ anniversaryNextLine(home.anniversary.anniversary) }}</div>
         </RouterLink>
-        <RouterLink v-else class="card__hint" :to="{ name: 'us' }" data-test="home-anniversary-none">还没有纪念日，去添加</RouterLink>
+        <RouterLink v-else class="btn btn--small btn--soft" :to="{ name: 'us' }" data-test="home-anniversary-none">还没有纪念日，去添加</RouterLink>
       </div>
       <div class="card home-grid__cell" data-test="home-latest-message" aria-live="polite"
         :aria-busy="home.latestMessage.status === 'loading'">
@@ -320,6 +490,7 @@ const scanLimit = HOME_MAX_PAGES * HOME_PAGE_LIMIT
         </div>
       </div>
     </div>
-    <GardenHome :refresh-key="gardenRefresh" summary-only />
+      <GardenHome v-if="!props.section" :refresh-key="gardenRefresh" summary-only />
+    </template>
   </section>
 </template>
