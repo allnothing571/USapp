@@ -69,7 +69,7 @@ console.log(`SESSION_SECRET=${randomToken(36)}`);
 console.log(`PUSH_WORKER_TOKEN=${randomToken(36)}`);
 console.log(`VAPID_PUBLIC_KEY=${vapid.publicKey}`);
 console.log(`VAPID_PRIVATE_KEY=${vapid.privateKey}`);
-console.log(`ADMIN_BOOTSTRAP_PASSWORD_HASH=${adminHash}`);
+console.log(`ADMIN_BOOTSTRAP_PASSWORD_HASH='${adminHash}'`);
 console.log(`BACKUP_PASSPHRASE=${randomToken(27)}`);
 if (suppliedAdminPass === '') {
   console.error(`# Generated initial admin password (save safely; NOT written to .env): ${generatedAdminPass}`);

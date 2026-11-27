@@ -41,6 +41,8 @@ https://{$PUBLIC_DOMAIN} {
 	}
 
 	handle /api/* {
+		@same_public_origin header Origin https://{$PUBLIC_DOMAIN}
+		request_header @same_public_origin Origin https://{$PUBLIC_DOMAIN}:443
 		reverse_proxy api:8080
 	}
 
