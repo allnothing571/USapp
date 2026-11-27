@@ -7,7 +7,9 @@
 #include <drogon/drogon.h>
 #include <trantor/net/EventLoop.h>
 
+#include <cctype>
 #include <cstddef>
+#include <cstdlib>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -52,6 +54,21 @@ std::string bareAddress(const std::string &value) {
         return value.substr(lt + 1, gt - lt - 1);
     }
     return value;
+}
+
+// QQ / 企业微信邮箱的 XMail 服务端广告 AUTH PLAIN 但两步式不兼容；默认走 AUTH=LOGIN。
+bool isQqMailHost(const std::string &host) {
+    std::string lower;
+    lower.reserve(host.size());
+    for (unsigned char ch : host) {
+        lower.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    if (lower == "qq.com") {
+        return true;
+    }
+    const std::string suffix = ".qq.com";
+    return lower.size() > suffix.size() &&
+           lower.compare(lower.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 }  // namespace
@@ -192,8 +209,11 @@ SendResult Mailer::sendViaSmtp(const std::string &toEmail, const std::string &ra
         if (!config.smtpUser.empty()) {
             curl_easy_setopt(curl, CURLOPT_USERNAME, config.smtpUser.c_str());
             curl_easy_setopt(curl, CURLOPT_PASSWORD, config.smtpPassword.c_str());
-            // 默认 AUTH 机制集合；交由服务端协商。
-            curl_easy_setopt(curl, CURLOPT_LOGIN_OPTIONS, "AUTH=*");
+            const char *loginOptsEnv = std::getenv("SMTP_LOGIN_OPTIONS");
+            const char *defaultOpts = isQqMailHost(config.smtpHost) ? "AUTH=LOGIN" : "AUTH=*";
+            const char *loginOpts =
+                (loginOptsEnv != nullptr && loginOptsEnv[0] != '\0') ? loginOptsEnv : defaultOpts;
+            curl_easy_setopt(curl, CURLOPT_LOGIN_OPTIONS, loginOpts);
         }
 
         const CURLcode code = curl_easy_perform(curl);
